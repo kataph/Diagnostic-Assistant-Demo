@@ -9,7 +9,7 @@ from rdflib import URIRef, Namespace
 
 
 
-InterfaceType = Literal["command_line", "voice"]
+InterfaceType = Literal["cli", "voice"]
 ZORRO = Namespace("http://www.example.org/zorro/")
 
 @dataclass
@@ -48,7 +48,7 @@ class Configuration:
 
     HUMAN_TESTER: bool = False
     HUMAN_SYMPTOM_GENERATOR: bool = False
-    INTERFACE_MODE: InterfaceType = "voice"
+    INTERFACE_MODE: InterfaceType = "cli"
     CLIENT: OpenAI = field(default_factory=OpenAI) # ensures that multiple instance will not share same client
     
     LOG_PATH: str = "Logs"

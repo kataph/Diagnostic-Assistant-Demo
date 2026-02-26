@@ -52,7 +52,7 @@ def parse_configuration() -> Configuration:
     # parser.add_argument("--batch-size", type=int, default=10, help="Size of the batch run")
 
     # Modes & Interface
-    parser.add_argument("--interface", choices=["command_line", "voice"], default="voice", help="Interface mode")
+    parser.add_argument("--interface", choices=["cli", "voice"], default="voice", help="Interface mode (currently affects on ServiceAgentHuman class)")
     # parser.add_argument("--tester", action="store_true", help="Enable human tester mode")
     # parser.add_argument("--symptom-gen", action="store_true", help="Enable human symptom generation")
 
@@ -96,6 +96,7 @@ def parse_configuration() -> Configuration:
         
         LLM_ASSISTANT_MODEL = args.LLM_assistant_model,
         NS_ASSISTANT_MODEL = args.NS_assistant_model,
+        
     )
 
 configuration = parse_configuration()
@@ -162,3 +163,10 @@ scenario_logger.addHandler(configuration.get_file_handler())
 asyncio.run(run_diagnostic_scenario(system, saboteur, service_agent, assistant, scenario_logger))
 
 # clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM
+
+# clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt \
+# --log-level 10 --rounds 5 \
+# --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
+# --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+# --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+# --saboteur Human --service Human --assistant LLM --interface cli
