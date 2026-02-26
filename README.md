@@ -33,6 +33,7 @@ Knowledge sources (in the homonimous folder) are divided into structured (knowle
 
 In the `scenario' spreadsheet a list of possible faults to inject in the systems, to start scenarios, is reported. 
 
+
 ## Assistant implementations
 
 The core of the codebase, in addition to the abstract layout of the scenario environment, are the implementations of the diagnostic assistant. 
@@ -46,6 +47,10 @@ Currenly, two such implementations are present. One is a monolithic LLM agent, t
 The full list of arguments required for execution can be found by runnning `python run_dignostic_scenario.py --help'. 
 The most important arguments are the agent types and the system description input. The agent type arguments are: `saboteur', `service', and `assistant'. By supplying these types, different implementations of these three agents are instantiated at runtime. Possible values are present in the arguments descriptions. 
 The system description arguments are `text-input-file' and `diagram', containing the locations of a textual description and a pictorial schematics of the underlying system, respectively. In addition, `ontology' and `kg' contain the locations of the ontology (TBox containing classes only) and the knowledge graph (ABox of the ontology containing specific instances) that are required for using the neurosymbolic assistant. 
+
+### Logging
+
+The overall managing of the interactions between the agents happens through an orchestrator component (`run_diagnostic_scenario' function). The orchestrator logs some high level information about each diagnostic scenario run. Each agent implementation logs entries about its own behavior. These entries are listed in files called `DIAGNOSTIC_SCENARIO_RUN_<timespan>', in the log folder (default value: `Logs')
 
 ## Video
 

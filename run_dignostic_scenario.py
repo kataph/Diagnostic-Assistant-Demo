@@ -21,7 +21,7 @@ def parse_configuration() -> Configuration:
     
     parser.add_argument("--text-input-file", type=str, help="Text file containing a description of the system")
     # parser.add_argument("text_input", type=str, help="Primary text description of the system")
-    parser.add_argument("--output_dir", type=str, default="Output", help="Directory for output files")
+    # parser.add_argument("--output_dir", type=str, default="Output", help="Directory for output files")
 
     # Optional Paths
     parser.add_argument("--ontology", type=str, default=None, help="Path to the ontology file")
@@ -56,6 +56,7 @@ def parse_configuration() -> Configuration:
     # parser.add_argument("--tester", action="store_true", help="Enable human tester mode")
     # parser.add_argument("--symptom-gen", action="store_true", help="Enable human symptom generation")
 
+    parser.add_argument("--log-path", type=str, default="Logs", help="Relative address of the folder for log files")
     parser.add_argument("--log-level", type=int, default=20, help="Sets the loggers level (default is INFO = 20)")
     
     args = parser.parse_args()
@@ -67,18 +68,19 @@ def parse_configuration() -> Configuration:
         SERVICE_TYPE=args.service,
         ASSISTANT_TYPE=args.assistant,
         TEXT_INPUT_FILE=args.text_input_file,
-        OUTPUT_DIRECTORY=args.output_dir,
+        # OUTPUT_DIRECTORY=args.output_dir,
         ONTOLOGY_PATH=args.ontology,
         KG_PATH=args.kg,
         DIAGRAM_PATH=args.diagram,
         USE_CACHE=args.cache,
         # HUMAN_TESTER=args.human_tester,
         # HUMAN_SYMPTOM_GENERATOR=args.human_symptom_generator,
-        # MAX_NUMBER_OF_ROUNDS=args.max_rounds,
         # BATCH_RUN_SIZE=args.batch_size,
         # DIAGNOSTIC_ACTIONS_BATCH_SIZE=args.diag_batch_size,
         INTERFACE_MODE=args.interface,
         # AGENTS_FORCED_TO_NO_CACHE=args.no_cache_agents
+        
+        LOG_PATH=args.log_path,
         LOG_LEVEL=args.log_level,
         MAX_NUMBER_OF_ROUNDS=args.rounds,
         ONTOLOGY_NAMESPACE = rdflib.Namespace(args.namespace),
@@ -142,9 +144,9 @@ match configuration.SERVICE_TYPE:
         raise ValueError(f'Unknow service agent type: {configuration.SERVICE_TYPE}')
 match configuration.ASSISTANT_TYPE:
     case 'EvidenceKGOptimal':
-        assistant = DiagnosticAssistantEvidenceKGOptimal(configuration)
+        assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration)
     case 'LLM':
-        assistant = DiagnosticAssistantLLM(configuration)
+        assistant = DiagnosticAssistantLLM(system, configuration)
     case _:
         raise ValueError(f'Unknow assistant type: {configuration.ASSISTANT_TYPE}')
         
@@ -159,4 +161,4 @@ scenario_logger.addHandler(configuration.get_file_handler())
 
 asyncio.run(run_diagnostic_scenario(system, saboteur, service_agent, assistant, scenario_logger))
 
-# clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur human --service human --assistant LLM
+# clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM

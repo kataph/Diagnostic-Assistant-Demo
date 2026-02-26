@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 from rdflib import URIRef, Namespace
 
-from environment_classes import DiagnosticAssistant, Saboteur, ServiceAgent
 
 
 InterfaceType = Literal["command_line", "voice"]
@@ -20,7 +19,7 @@ class Configuration:
     ASSISTANT_TYPE: str
     
     TEXT_INPUT_FILE: str
-    OUTPUT_DIRECTORY: str = "Output"
+    # OUTPUT_DIRECTORY: str = "Output"
     ONTOLOGY_PATH: Optional[str] = None
     ONTOLOGY_NAMESPACE: Optional[Namespace] = ZORRO
     KG_PATH: Optional[str] = None
