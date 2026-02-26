@@ -1,0 +1,661 @@
+@prefix : <http://www.example.org/zorro/3cubes/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <http://www.example.org/zorro/3cubes/> .
+
+<http://www.example.org/zorro/3cubes> rdf:type owl:Ontology ;
+                                       owl:imports <http://www.example.org/zorro/> ;
+                                       rdfs:comment """This ontology has been developed by Ameneh Naghdi Pour and colleagues (1). See also https://github.com/kai-vu/zorro where a serialization is present. 
+
+Since the development of such ontology is still ongoing, we (Compagno Francesco) wrote this file to reflect our understanding of the latest (unpublished) version of the ontology after discussion with the authors. 
+
+We apported also modifications:
+- addition of :monitors object property
+- deletion of Cause class
+- addition of inverseOf axiom between hasCause and hasEffect
+- replaced RepairAction and Test with a small taxonomy of DiagnosticActions
+- addition of hasSuperComponent proprty inverse of hasSubComponent
+
+
+
+
+
+(1) POUR, Ameneh Naghdi, et al. Knowledge Representation and Engineering for Smart Diagnosis of Cyber Physical Systems. In: ISWC 2024 Posters, Demos and Industry Tracks: From Novel Ideas to Industrial Practice, ISWC-Posters-Demos-Industry 2024. CEUR, 2024. p. 1-3.""" .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://www.example.org/zorro/defines
+<http://www.example.org/zorro/defines> rdf:type owl:ObjectProperty ;
+                                       rdfs:subPropertyOf owl:topObjectProperty ;
+                                       rdfs:domain <http://www.example.org/zorro/Function> ;
+                                       rdfs:range <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/dependsOn
+<http://www.example.org/zorro/dependsOn> rdf:type owl:ObjectProperty ;
+                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                         rdf:type owl:TransitiveProperty ;
+                                         rdfs:domain <http://www.example.org/zorro/Function> ;
+                                         rdfs:range <http://www.example.org/zorro/Function> ;
+                                         rdfs:comment """Input-dependency between functions:
+X dependsOn Y if X makes use of (part of) the output of Y.""" .
+
+
+###  http://www.example.org/zorro/failsVia
+<http://www.example.org/zorro/failsVia> rdf:type owl:ObjectProperty ;
+                                        rdfs:subPropertyOf owl:topObjectProperty ;
+                                        rdfs:domain <http://www.example.org/zorro/Component> ;
+                                        rdfs:range <http://www.example.org/zorro/Problem> ;
+                                        owl:propertyChainAxiom ( <http://www.example.org/zorro/hasFunction>
+                                                                 <http://www.example.org/zorro/defines>
+                                                               ) .
+
+
+###  http://www.example.org/zorro/hasCause
+<http://www.example.org/zorro/hasCause> rdf:type owl:ObjectProperty ;
+                                        rdfs:subPropertyOf owl:topObjectProperty ;
+                                        owl:inverseOf <http://www.example.org/zorro/hasEffect> ;
+                                        rdfs:domain <http://www.example.org/zorro/Problem> ;
+                                        rdfs:range <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/hasEffect
+<http://www.example.org/zorro/hasEffect> rdf:type owl:ObjectProperty ;
+                                         rdfs:subPropertyOf owl:topObjectProperty ;
+                                         rdfs:domain <http://www.example.org/zorro/Problem> ;
+                                         rdfs:range <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/hasFunction
+<http://www.example.org/zorro/hasFunction> rdf:type owl:ObjectProperty ;
+                                           rdfs:subPropertyOf owl:topObjectProperty ;
+                                           rdfs:domain <http://www.example.org/zorro/Component> ;
+                                           rdfs:range <http://www.example.org/zorro/Function> .
+
+
+###  http://www.example.org/zorro/hasRepairAction
+<http://www.example.org/zorro/hasRepairAction> rdf:type owl:ObjectProperty ;
+                                               rdfs:subPropertyOf owl:topObjectProperty ;
+                                               rdfs:domain <http://www.example.org/zorro/Problem> ;
+                                               rdfs:range <http://www.example.org/zorro/DiagnosticAction> .
+
+
+###  http://www.example.org/zorro/hasSubComponent
+<http://www.example.org/zorro/hasSubComponent> rdf:type owl:ObjectProperty ;
+                                               rdfs:subPropertyOf owl:topObjectProperty ;
+                                               owl:inverseOf <http://www.example.org/zorro/hasSuperComponent> ;
+                                               rdfs:domain <http://www.example.org/zorro/Component> ;
+                                               rdfs:range <http://www.example.org/zorro/Component> .
+
+
+###  http://www.example.org/zorro/hasSubFunction
+<http://www.example.org/zorro/hasSubFunction> rdf:type owl:ObjectProperty ;
+                                              rdfs:subPropertyOf owl:topObjectProperty ;
+                                              rdfs:domain <http://www.example.org/zorro/Function> ;
+                                              rdfs:range <http://www.example.org/zorro/Function> .
+
+
+###  http://www.example.org/zorro/hasSuperComponent
+<http://www.example.org/zorro/hasSuperComponent> rdf:type owl:ObjectProperty .
+
+
+###  http://www.example.org/zorro/hasTest
+<http://www.example.org/zorro/hasTest> rdf:type owl:ObjectProperty ;
+                                       rdfs:subPropertyOf owl:topObjectProperty ;
+                                       rdfs:domain <http://www.example.org/zorro/Problem> ;
+                                       rdfs:range <http://www.example.org/zorro/DiagnosticAction> .
+
+
+###  http://www.example.org/zorro/monitors
+<http://www.example.org/zorro/monitors> rdf:type owl:ObjectProperty ;
+                                        rdfs:subPropertyOf <http://www.example.org/zorro/dependsOn> ;
+                                        rdfs:comment """X monitors Y iff X makes use of (part of) the output of Y to provide information about Y.
+We introduced this relation to clarify certain diagnostic reasoning methods that exploit functional dependencies.""" .
+
+
+###  http://www.w3.org/2002/07/owl#topObjectProperty
+owl:topObjectProperty rdf:type owl:ObjectProperty ;
+                      owl:inverseOf owl:topObjectProperty ;
+                      rdf:type owl:SymmetricProperty ,
+                               owl:TransitiveProperty ,
+                               owl:ReflexiveProperty .
+
+
+#################################################################
+#    Data properties
+#################################################################
+
+###  http://www.example.org/zorro/hasCost
+<http://www.example.org/zorro/hasCost> rdf:type owl:DatatypeProperty ;
+                                       rdfs:range xsd:decimal .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://www.example.org/zorro/Adjust
+<http://www.example.org/zorro/Adjust> rdf:type owl:Class ;
+                                      rdfs:subClassOf <http://www.example.org/zorro/DiagnosticAction> ,
+                                                      [ rdf:type owl:Restriction ;
+                                                        owl:onProperty <http://www.example.org/zorro/hasCost> ;
+                                                        owl:hasValue 5
+                                                      ] ;
+                                      rdfs:comment "Adjusting, refitting, tuning, reconfiguring, or repairing a component without replacing it." .
+
+
+###  http://www.example.org/zorro/Component
+<http://www.example.org/zorro/Component> rdf:type owl:Class ;
+                                         owl:disjointWith <http://www.example.org/zorro/DiagnosticAction> ,
+                                                          <http://www.example.org/zorro/Effect> ,
+                                                          <http://www.example.org/zorro/Function> ,
+                                                          <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/DiagnosticAction
+<http://www.example.org/zorro/DiagnosticAction> rdf:type owl:Class ;
+                                                owl:disjointWith <http://www.example.org/zorro/Effect> ,
+                                                                 <http://www.example.org/zorro/Function> ,
+                                                                 <http://www.example.org/zorro/Problem> ;
+                                                rdfs:comment "Any action that service personnel may perform on a component while addressing an equipment failure." .
+
+
+###  http://www.example.org/zorro/Effect
+<http://www.example.org/zorro/Effect> rdf:type owl:Class ;
+                                      owl:disjointWith <http://www.example.org/zorro/Function> ,
+                                                       <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/Function
+<http://www.example.org/zorro/Function> rdf:type owl:Class ;
+                                        owl:disjointWith <http://www.example.org/zorro/Problem> .
+
+
+###  http://www.example.org/zorro/Observe
+<http://www.example.org/zorro/Observe> rdf:type owl:Class ;
+                                       rdfs:subClassOf <http://www.example.org/zorro/DiagnosticAction> ,
+                                                       [ rdf:type owl:Restriction ;
+                                                         owl:onProperty <http://www.example.org/zorro/hasCost> ;
+                                                         owl:hasValue 1
+                                                       ] ;
+                                       rdfs:comment "Visually inspecting or analyzing a component without tools and without physically manipulating it." .
+
+
+###  http://www.example.org/zorro/Problem
+<http://www.example.org/zorro/Problem> rdf:type owl:Class .
+
+
+###  http://www.example.org/zorro/Replace
+<http://www.example.org/zorro/Replace> rdf:type owl:Class ;
+                                       rdfs:subClassOf <http://www.example.org/zorro/DiagnosticAction> ,
+                                                       [ rdf:type owl:Restriction ;
+                                                         owl:onProperty <http://www.example.org/zorro/hasCost> ;
+                                                         owl:hasValue 10
+                                                       ] ;
+                                       rdfs:comment "Swapping a component with another component." .
+
+
+###  http://www.example.org/zorro/Test
+<http://www.example.org/zorro/Test> rdf:type owl:Class ;
+                                    rdfs:subClassOf <http://www.example.org/zorro/DiagnosticAction> ,
+                                                    [ rdf:type owl:Restriction ;
+                                                      owl:onProperty <http://www.example.org/zorro/hasCost> ;
+                                                      owl:hasValue 3
+                                                    ] ;
+                                    rdfs:comment "Testing or measuring a component using tools and/or by actively manipulating it." .
+
+
+#################################################################
+#    Individuals
+#################################################################
+
+###  http://www.example.org/zorro/AdjustLamp
+<http://www.example.org/zorro/AdjustLamp> rdf:type owl:NamedIndividual ,
+                                                   <http://www.example.org/zorro/Adjust> ;
+                                          <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/MainLoad> ;
+                                          <http://www.example.org/zorro/hasCost> 5 ;
+                                          rdfs:comment "Make sure the lamp is properly installed in its holder" .
+
+
+###  http://www.example.org/zorro/Battery
+<http://www.example.org/zorro/Battery> rdf:type owl:NamedIndividual ,
+                                                <http://www.example.org/zorro/Component> ;
+                                       <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/NoPower> ;
+                                       <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/SupplyPower> ;
+                                       <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/PowerSupplyModule> .
+
+
+###  http://www.example.org/zorro/BatteryCaseFaulty
+<http://www.example.org/zorro/BatteryCaseFaulty> rdf:type owl:NamedIndividual ,
+                                                          <http://www.example.org/zorro/Problem> ;
+                                                 <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/TestBatteryCase> .
+
+
+###  http://www.example.org/zorro/BatteryDamaged
+<http://www.example.org/zorro/BatteryDamaged> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Problem> ;
+                                              <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/InspectBattery> ,
+                                                                                     <http://www.example.org/zorro/ReplaceBattery> ,
+                                                                                     <http://www.example.org/zorro/TestBattery> .
+
+
+###  http://www.example.org/zorro/BatteryDepleted
+<http://www.example.org/zorro/BatteryDepleted> rdf:type owl:NamedIndividual ,
+                                                        <http://www.example.org/zorro/Problem> ;
+                                               <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/ReplaceBattery> ,
+                                                                                      <http://www.example.org/zorro/TestBattery> .
+
+
+###  http://www.example.org/zorro/BurnedFilaments
+<http://www.example.org/zorro/BurnedFilaments> rdf:type owl:NamedIndividual ,
+                                                        <http://www.example.org/zorro/Problem> ;
+                                               <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/ObserveLamp> ,
+                                                                                      <http://www.example.org/zorro/ReplaceLamp> ,
+                                                                                      <http://www.example.org/zorro/TestLamp> ,
+                                                                                      :ObserveParallelLamp .
+
+
+###  http://www.example.org/zorro/Cables
+<http://www.example.org/zorro/Cables> rdf:type owl:NamedIndividual ,
+                                               <http://www.example.org/zorro/Component> ;
+                                      <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/NoPowerTransmission> ,
+                                                                              <http://www.example.org/zorro/WrongPolarity> ;
+                                      <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/TransmitPower> .
+
+
+###  http://www.example.org/zorro/CablesDetached
+<http://www.example.org/zorro/CablesDetached> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Problem> ;
+                                              <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/ReconnectCables> ;
+                                              <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/ObserveCables> .
+
+
+###  http://www.example.org/zorro/CablesInverted
+<http://www.example.org/zorro/CablesInverted> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Problem> ;
+                                              <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/SwitchCables> ;
+                                              <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/PolarityTest> ,
+                                                                                     :ObserveInvertedCablesIndicator .
+
+
+###  http://www.example.org/zorro/CablesRuptured
+<http://www.example.org/zorro/CablesRuptured> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Problem> ;
+                                              <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/ReplaceCables> ;
+                                              <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/ObserveCables> .
+
+
+###  http://www.example.org/zorro/ControlCurrentFlow
+<http://www.example.org/zorro/ControlCurrentFlow> rdf:type owl:NamedIndividual ,
+                                                           <http://www.example.org/zorro/Function> ;
+                                                  <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/SupplyPower> ,
+                                                                                           <http://www.example.org/zorro/TransmitPower> .
+
+
+###  http://www.example.org/zorro/ControlIllumination_Coarse
+<http://www.example.org/zorro/ControlIllumination_Coarse> rdf:type owl:NamedIndividual ,
+                                                                   <http://www.example.org/zorro/Function> ;
+                                                          <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/SupplyPower_Coarse> ;
+                                                          <http://www.example.org/zorro/hasSubFunction> <http://www.example.org/zorro/ControlCurrentFlow> ,
+                                                                                                        <http://www.example.org/zorro/IndicateCablePolarity> .
+
+
+###  http://www.example.org/zorro/ControlModule
+<http://www.example.org/zorro/ControlModule> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Component> ;
+                                             <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/ControlIllumination_Coarse> ;
+                                             <http://www.example.org/zorro/hasSubComponent> <http://www.example.org/zorro/InvertedCablesIndicator> ,
+                                                                                            <http://www.example.org/zorro/Switch> ;
+                                             <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/3CubesSystem> .
+
+
+###  http://www.example.org/zorro/Illuminate
+<http://www.example.org/zorro/Illuminate> rdf:type owl:NamedIndividual ,
+                                                   <http://www.example.org/zorro/Function> ;
+                                          <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/ControlCurrentFlow> ,
+                                                                                   <http://www.example.org/zorro/SupplyPower> ,
+                                                                                   <http://www.example.org/zorro/TransmitPower> .
+
+
+###  http://www.example.org/zorro/Illuminate_Coarse
+<http://www.example.org/zorro/Illuminate_Coarse> rdf:type owl:NamedIndividual ,
+                                                          <http://www.example.org/zorro/Function> ;
+                                                 <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/ControlIllumination_Coarse> ,
+                                                                                          <http://www.example.org/zorro/SupplyPower_Coarse> ;
+                                                 <http://www.example.org/zorro/hasSubFunction> <http://www.example.org/zorro/Illuminate> ,
+                                                                                               <http://www.example.org/zorro/IndicateLoadInputOK> .
+
+
+###  http://www.example.org/zorro/Illuminate_Top
+<http://www.example.org/zorro/Illuminate_Top> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Function> ;
+                                              <http://www.example.org/zorro/defines> <http://www.example.org/zorro/LightbulbDoesNotTurOn> ;
+                                              <http://www.example.org/zorro/hasSubFunction> <http://www.example.org/zorro/ControlIllumination_Coarse> ,
+                                                                                            <http://www.example.org/zorro/Illuminate_Coarse> ,
+                                                                                            <http://www.example.org/zorro/SupplyPower_Coarse> .
+
+
+###  http://www.example.org/zorro/IndicateCablePolarity
+<http://www.example.org/zorro/IndicateCablePolarity> rdf:type owl:NamedIndividual ,
+                                                              <http://www.example.org/zorro/Function> ;
+                                                     <http://www.example.org/zorro/defines> <http://www.example.org/zorro/NoIndication> ;
+                                                     <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/SupplyPower> ,
+                                                                                              <http://www.example.org/zorro/TransmitPower> .
+
+
+###  http://www.example.org/zorro/IndicateLoadInputOK
+<http://www.example.org/zorro/IndicateLoadInputOK> rdf:type owl:NamedIndividual ,
+                                                            <http://www.example.org/zorro/Function> ;
+                                                   <http://www.example.org/zorro/defines> <http://www.example.org/zorro/NoIndication> ;
+                                                   <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/ControlCurrentFlow> ,
+                                                                                            <http://www.example.org/zorro/SupplyPower> ,
+                                                                                            <http://www.example.org/zorro/TransmitPower> .
+
+
+###  http://www.example.org/zorro/IndicatePowerOK
+<http://www.example.org/zorro/IndicatePowerOK> rdf:type owl:NamedIndividual ,
+                                                        <http://www.example.org/zorro/Function> ;
+                                               <http://www.example.org/zorro/defines> <http://www.example.org/zorro/NoIndication> ;
+                                               <http://www.example.org/zorro/monitors> <http://www.example.org/zorro/SupplyPower> .
+
+
+###  http://www.example.org/zorro/InspectBattery
+<http://www.example.org/zorro/InspectBattery> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Observe> ;
+                                              <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Battery> ;
+                                              <http://www.example.org/zorro/hasCost> 1 ;
+                                              rdfs:comment "Look at the battery for signs of improper installation or defect" .
+
+
+###  http://www.example.org/zorro/InvertedCablesIndicator
+<http://www.example.org/zorro/InvertedCablesIndicator> rdf:type owl:NamedIndividual ,
+                                                                <http://www.example.org/zorro/Component> ;
+                                                       <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/NoIndication> ;
+                                                       <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/IndicateCablePolarity> ;
+                                                       <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/ControlModule> ;
+                                                       rdfs:comment "Also called control module indicator or control module led" .
+
+
+###  http://www.example.org/zorro/LampImproperlyInstalled
+<http://www.example.org/zorro/LampImproperlyInstalled> rdf:type owl:NamedIndividual ,
+                                                                <http://www.example.org/zorro/Problem> ;
+                                                       <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/AdjustLamp> ;
+                                                       <http://www.example.org/zorro/hasTest> :ObserveParallelLamp .
+
+
+###  http://www.example.org/zorro/LightbulbDoesNotTurOn
+<http://www.example.org/zorro/LightbulbDoesNotTurOn> rdf:type owl:NamedIndividual ,
+                                                              <http://www.example.org/zorro/Problem> ;
+                                                     <http://www.example.org/zorro/hasCause> <http://www.example.org/zorro/BurnedFilaments> ,
+                                                                                             <http://www.example.org/zorro/LampImproperlyInstalled> ,
+                                                                                             <http://www.example.org/zorro/NoPower> ,
+                                                                                             <http://www.example.org/zorro/NoPowerTransmission> ,
+                                                                                             <http://www.example.org/zorro/SwitchInternalFault> .
+
+
+###  http://www.example.org/zorro/LoadModule
+<http://www.example.org/zorro/LoadModule> rdf:type owl:NamedIndividual ,
+                                                   <http://www.example.org/zorro/Component> ;
+                                          <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/Illuminate_Coarse> ;
+                                          <http://www.example.org/zorro/hasSubComponent> <http://www.example.org/zorro/MainLoad> ,
+                                                                                         <http://www.example.org/zorro/ParallelLoad> ;
+                                          <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/3CubesSystem> .
+
+
+###  http://www.example.org/zorro/MainLoad
+<http://www.example.org/zorro/MainLoad> rdf:type owl:NamedIndividual ,
+                                                 <http://www.example.org/zorro/Component> ;
+                                        <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/BurnedFilaments> ,
+                                                                                <http://www.example.org/zorro/LampImproperlyInstalled> ;
+                                        <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/Illuminate> ;
+                                        <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/LoadModule> .
+
+
+###  http://www.example.org/zorro/NoIndication
+<http://www.example.org/zorro/NoIndication> rdf:type owl:NamedIndividual ,
+                                                     <http://www.example.org/zorro/Problem> ;
+                                            <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/ReplaceIndicator> .
+
+
+###  http://www.example.org/zorro/NoPower
+<http://www.example.org/zorro/NoPower> rdf:type owl:NamedIndividual ,
+                                                <http://www.example.org/zorro/Problem> ;
+                                       <http://www.example.org/zorro/hasCause> <http://www.example.org/zorro/BatteryCaseFaulty> ,
+                                                                               <http://www.example.org/zorro/BatteryDamaged> ,
+                                                                               <http://www.example.org/zorro/BatteryDepleted> .
+
+
+###  http://www.example.org/zorro/NoPowerTransmission
+<http://www.example.org/zorro/NoPowerTransmission> rdf:type owl:NamedIndividual ,
+                                                            <http://www.example.org/zorro/Problem> ;
+                                                   <http://www.example.org/zorro/hasCause> <http://www.example.org/zorro/CablesDetached> ,
+                                                                                           <http://www.example.org/zorro/CablesRuptured> .
+
+
+###  http://www.example.org/zorro/ObserveCables
+<http://www.example.org/zorro/ObserveCables> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Observe> ;
+                                             <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Cables> ;
+                                             <http://www.example.org/zorro/hasCost> 1 ;
+                                             rdfs:comment "Look at the cables for any sign of damage or improper installation." .
+
+
+###  http://www.example.org/zorro/ObserveLamp
+<http://www.example.org/zorro/ObserveLamp> rdf:type owl:NamedIndividual ,
+                                                    <http://www.example.org/zorro/Observe> ;
+                                           <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/MainLoad> ;
+                                           <http://www.example.org/zorro/hasCost> 1 ;
+                                           rdfs:comment "Look at the lamp for any sign of damage or improper installation." .
+
+
+###  http://www.example.org/zorro/ParallelLoad
+<http://www.example.org/zorro/ParallelLoad> rdf:type owl:NamedIndividual ,
+                                                     <http://www.example.org/zorro/Component> ;
+                                            <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/NoIndication> ;
+                                            <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/IndicateLoadInputOK> ;
+                                            <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/LoadModule> .
+
+
+###  http://www.example.org/zorro/PolarityTest
+<http://www.example.org/zorro/PolarityTest> rdf:type owl:NamedIndividual ,
+                                                     <http://www.example.org/zorro/Test> ;
+                                            <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Cables> ;
+                                            <http://www.example.org/zorro/hasCost> 3 ;
+                                            rdfs:comment "Test voltage polarity at the end of the control module" .
+
+
+###  http://www.example.org/zorro/PowerIndicator
+<http://www.example.org/zorro/PowerIndicator> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Component> ;
+                                              <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/NoIndication> ;
+                                              <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/IndicatePowerOK> ;
+                                              <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/PowerSupplyModule> .
+
+
+###  http://www.example.org/zorro/PowerSupplyModule
+<http://www.example.org/zorro/PowerSupplyModule> rdf:type owl:NamedIndividual ,
+                                                          <http://www.example.org/zorro/Component> ;
+                                                 <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/SupplyPower_Coarse> ;
+                                                 <http://www.example.org/zorro/hasSubComponent> <http://www.example.org/zorro/Battery> ,
+                                                                                                <http://www.example.org/zorro/PowerIndicator> ;
+                                                 <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/3CubesSystem> .
+
+
+###  http://www.example.org/zorro/ReconnectCables
+<http://www.example.org/zorro/ReconnectCables> rdf:type owl:NamedIndividual ,
+                                                        <http://www.example.org/zorro/Adjust> ;
+                                               <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Cables> ;
+                                               <http://www.example.org/zorro/hasCost> 5 ;
+                                               rdfs:comment "If a cable terminal is disconnected from the relavant port, reconnect it" .
+
+
+###  http://www.example.org/zorro/ReplaceBattery
+<http://www.example.org/zorro/ReplaceBattery> rdf:type owl:NamedIndividual ,
+                                                       <http://www.example.org/zorro/Replace> ;
+                                              <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Battery> ;
+                                              <http://www.example.org/zorro/hasCost> 10 ;
+                                              rdfs:comment "Replace the battery" .
+
+
+###  http://www.example.org/zorro/ReplaceCables
+<http://www.example.org/zorro/ReplaceCables> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Replace> ;
+                                             <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Cables> ;
+                                             <http://www.example.org/zorro/hasCost> 10 ;
+                                             rdfs:comment "Replace some of the cables. You decide which." .
+
+
+###  http://www.example.org/zorro/ReplaceIndicator
+<http://www.example.org/zorro/ReplaceIndicator> rdf:type owl:NamedIndividual ,
+                                                         <http://www.example.org/zorro/Replace> ;
+                                                <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/3CubesSystem> ;
+                                                <http://www.example.org/zorro/hasCost> 10 ;
+                                                rdfs:comment "Replace an indicator, may be any of the indicators present in the system" .
+
+
+###  http://www.example.org/zorro/ReplaceLamp
+<http://www.example.org/zorro/ReplaceLamp> rdf:type owl:NamedIndividual ,
+                                                    <http://www.example.org/zorro/Replace> ;
+                                           <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/MainLoad> ;
+                                           <http://www.example.org/zorro/hasCost> 10 ;
+                                           rdfs:comment "Replace the main lamp" .
+
+
+###  http://www.example.org/zorro/ReplaceSwitch
+<http://www.example.org/zorro/ReplaceSwitch> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Replace> ;
+                                             <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Switch> ;
+                                             <http://www.example.org/zorro/hasCost> 10 ;
+                                             rdfs:comment "Replace the switch" .
+
+
+###  http://www.example.org/zorro/SupplyPower
+<http://www.example.org/zorro/SupplyPower> rdf:type owl:NamedIndividual ,
+                                                    <http://www.example.org/zorro/Function> ;
+                                           <http://www.example.org/zorro/defines> <http://www.example.org/zorro/NoPower> .
+
+
+###  http://www.example.org/zorro/SupplyPower_Coarse
+<http://www.example.org/zorro/SupplyPower_Coarse> rdf:type owl:NamedIndividual ,
+                                                           <http://www.example.org/zorro/Function> ;
+                                                  <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/ControlIllumination_Coarse> ;
+                                                  <http://www.example.org/zorro/hasSubFunction> <http://www.example.org/zorro/IndicatePowerOK> ,
+                                                                                                <http://www.example.org/zorro/SupplyPower> .
+
+
+###  http://www.example.org/zorro/Switch
+<http://www.example.org/zorro/Switch> rdf:type owl:NamedIndividual ,
+                                               <http://www.example.org/zorro/Component> ;
+                                      <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/SwitchInternalFault> ;
+                                      <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/ControlCurrentFlow> ;
+                                      <http://www.example.org/zorro/hasSuperComponent> <http://www.example.org/zorro/ControlModule> .
+
+
+###  http://www.example.org/zorro/SwitchCables
+<http://www.example.org/zorro/SwitchCables> rdf:type owl:NamedIndividual ,
+                                                     <http://www.example.org/zorro/Adjust> ;
+                                            <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Cables> ;
+                                            <http://www.example.org/zorro/hasCost> 5 ;
+                                            rdfs:comment "Switch the cables between the power supply and the control module" .
+
+
+###  http://www.example.org/zorro/SwitchInternalFault
+<http://www.example.org/zorro/SwitchInternalFault> rdf:type owl:NamedIndividual ,
+                                                            <http://www.example.org/zorro/Problem> ;
+                                                   <http://www.example.org/zorro/hasRepairAction> <http://www.example.org/zorro/ReplaceSwitch> ;
+                                                   <http://www.example.org/zorro/hasTest> <http://www.example.org/zorro/TestSwitch> .
+
+
+###  http://www.example.org/zorro/TestBattery
+<http://www.example.org/zorro/TestBattery> rdf:type owl:NamedIndividual ,
+                                                    <http://www.example.org/zorro/Test> ;
+                                           <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Battery> ;
+                                           <http://www.example.org/zorro/hasCost> 3 ;
+                                           rdfs:comment "Use a voltimeter to test the battery energy content" .
+
+
+###  http://www.example.org/zorro/TestBatteryCase
+<http://www.example.org/zorro/TestBatteryCase> rdf:type owl:NamedIndividual ,
+                                                        <http://www.example.org/zorro/Test> ;
+                                               <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/PowerSupplyModule> ;
+                                               <http://www.example.org/zorro/hasCost> 3 ;
+                                               rdfs:comment "Test the battery case for continuity" .
+
+
+###  http://www.example.org/zorro/TestLamp
+<http://www.example.org/zorro/TestLamp> rdf:type owl:NamedIndividual ,
+                                                 <http://www.example.org/zorro/Test> ;
+                                        <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/MainLoad> ;
+                                        <http://www.example.org/zorro/hasCost> 3 ;
+                                        rdfs:comment "Test the lamp for continuity/abnormal resistance values" .
+
+
+###  http://www.example.org/zorro/TestSwitch
+<http://www.example.org/zorro/TestSwitch> rdf:type owl:NamedIndividual ,
+                                                   <http://www.example.org/zorro/Test> ;
+                                          <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/Switch> ;
+                                          <http://www.example.org/zorro/hasCost> 3 ;
+                                          rdfs:comment "With a multimiter, test continuity between the switch ports if the switch is closed, test for absence of continuity if the switch is open." .
+
+
+###  http://www.example.org/zorro/TransmitPower
+<http://www.example.org/zorro/TransmitPower> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Function> ;
+                                             <http://www.example.org/zorro/defines> <http://www.example.org/zorro/NoPowerTransmission> ,
+                                                                                    <http://www.example.org/zorro/WrongPolarity> ;
+                                             <http://www.example.org/zorro/dependsOn> <http://www.example.org/zorro/SupplyPower> ;
+                                             rdfs:comment "Transmission between power module towards load module" .
+
+
+###  http://www.example.org/zorro/WrongPolarity
+<http://www.example.org/zorro/WrongPolarity> rdf:type owl:NamedIndividual ,
+                                                      <http://www.example.org/zorro/Problem> ;
+                                             <http://www.example.org/zorro/hasCause> <http://www.example.org/zorro/CablesInverted> .
+
+
+###  http://www.example.org/zorro/3CubesSystem
+<http://www.example.org/zorro/3CubesSystem> rdf:type owl:NamedIndividual ,
+                                                     <http://www.example.org/zorro/Component> ;
+                                            <http://www.example.org/zorro/failsVia> <http://www.example.org/zorro/LightbulbDoesNotTurOn> ;
+                                            <http://www.example.org/zorro/hasFunction> <http://www.example.org/zorro/Illuminate_Top> ;
+                                            <http://www.example.org/zorro/hasSubComponent> <http://www.example.org/zorro/Cables> ,
+                                                                                           <http://www.example.org/zorro/ControlModule> ,
+                                                                                           <http://www.example.org/zorro/LoadModule> ,
+                                                                                           <http://www.example.org/zorro/PowerSupplyModule> .
+
+
+###  http://www.example.org/zorro/3cubes#ObserveInvertedCablesIndicator
+:ObserveInvertedCablesIndicator rdf:type owl:NamedIndividual ,
+                                         <http://www.example.org/zorro/Observe> ;
+                                <http://www.example.org/zorro/hasTarget> :ObserveInvertedCablesIndicator ;
+                                <http://www.example.org/zorro/hasCost> 1 ;
+                                rdfs:comment "The indicator on top of the control module has the explicit purpose of signalign polarity inversion of the cables coming into the module" .
+
+
+###  http://www.example.org/zorro/3cubes#ObserveParallelLamp
+:ObserveParallelLamp rdf:type owl:NamedIndividual ,
+                              <http://www.example.org/zorro/Observe> ;
+                     <http://www.example.org/zorro/hasTarget> <http://www.example.org/zorro/ParallelLoad> ;
+                     <http://www.example.org/zorro/hasCost> 1 ;
+                     rdfs:comment "Look through the pinhole in the load module to see if the small lamp turns on when the switch is operated and power is supplied to the circuit." .
+
+
+#################################################################
+#    General axioms
+#################################################################
+
+[ rdf:type owl:AllDisjointClasses ;
+  owl:members ( <http://www.example.org/zorro/Adjust>
+                <http://www.example.org/zorro/Observe>
+                <http://www.example.org/zorro/Replace>
+                <http://www.example.org/zorro/Test>
+              )
+] .
+
+
+###  Generated by the OWL API (version 4.5.29.2024-05-13T12:11:03Z) https://github.com/owlcs/owlapi

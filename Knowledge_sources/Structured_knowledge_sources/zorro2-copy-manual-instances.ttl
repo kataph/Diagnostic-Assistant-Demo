@@ -1,0 +1,160 @@
+@prefix : <www.example.org/zorro/> .
+
+#################################################################
+# Components (structural decomposition)
+#################################################################
+
+:System a :Component ;
+    :hasSubComponent :PowerSupplyModule ,
+                     :ControlModule ,
+                     :LoadModule .
+
+:PowerSupplyModule a :Component ;
+    :hasSubComponent :Battery , :PowerIndicator .
+
+:ControlModule a :Component ;
+    :hasSubComponent :Switch .
+
+:LoadModule a :Component ;
+    :hasSubComponent :MainLoad , :ParallelLoad .
+
+:Battery a :Component ;
+    :hasFunction :SupplyPower .
+
+:Cables a :Component ;
+    :hasFunction :TransmitPower .
+
+:PowerIndicator a :Component ;
+    :hasFunction :IndicatePowerOK .
+
+:Switch a :Component ;
+    :hasFunction :ControlCurrentFlow .
+
+:InvertedCablesIndicator a :Component ;
+    :hasFunction :IndicateCablesInverted .
+
+:MainLoad a :Component ;
+    :hasFunction :Illuminate .
+
+:ParallelLoad a :Component ;
+    :hasFunction :IndicateLoadInputOK .
+
+#################################################################
+# Functions (functional decomposition)
+#################################################################
+
+:SupplyPower a :Function ;
+    :defines :NoPower .
+
+:TransmitPower a :Function ;
+    :dependsOn :SupplyPower ;
+    :defines :WrongPolarity .
+    :defines :NoPowerTransmission .
+
+:IndicatePowerOK a :Function ;
+    :dependsOn :TransmitPower ;
+    :defines :NoIndication .
+
+:ControlCurrentFlow a :Function ;
+    :dependsOn :TransmitPower ;
+    :defines :SwitchOpenProblem .
+    :defines :SwitchClosedProblem .
+
+:IndicateCablePolarity a :Function ;
+    :dependsOn :TransmitPower ;
+    :defines :NoIndication .
+
+:Illuminate a :Function ;
+    :dependsOn :ControlCurrentFlow ;
+    :defines :LightbulbDoesNotTurOn .
+
+:IndicateLoadInputOK a :Function ;
+    :dependsOn :ControlCurrentFlow ;
+    :defines :NoIndication .
+
+#################################################################
+# Problems
+#################################################################
+
+:NoPower a :Problem ;
+    :hasCause :BatteryDepleted ;
+    :hasTest :TestVoltage .
+    :hasTest :SupplyLedTest .
+
+:LightbulbDoesNotTurOn a :Problem ;
+    :hasCause :BurnedFilaments .
+    :hasTest :VisualInspection .
+    :hasTest :IsolationTest .
+    :hasTest :ParallelLoadTest .
+    :hasRepairAction :ReplaceMainLoad .
+
+:NoIndication a :Problem ;
+    :hasCause :OpenCircuitFailure ;
+    :hasTest :IsolationTest .
+    :hasTest :VisualInspection .
+
+:SwitchOpenProblem a :Problem ;
+    :hasCause :OpenCircuitFailure ;
+    :hasTest :ContinuityTest .
+
+:SwitchClosedProblem a :Problem ;
+    :hasCause :ShortCircuitFailure ;
+    :hasTest :ContinuityTest .
+
+:WrongPolarity a :Problem ;
+    :hasCause :CablesInverted ;
+    :hasTest :PolarityTest .
+    :hasTest :ControlLedTest .
+
+:NoPowerTransmission a :Problem ;
+    :hasCause :CablesInverted ;
+    :hasCause :CablesDetached ;
+    :hasCause :CablesRuptured ;
+    :hasTest :VoltageTest .
+
+#################################################################
+# Causes and Effects (causal reasoning)
+#################################################################
+
+:BatteryDepleted a :Problem ;
+    :hasTest :VoltageTest .
+    :hasRepairAction :ReplaceComponent .
+
+:OpenCircuitFailure a :Problem ;
+    :hasRepairAction :ReplaceComponent .
+    :hasRepairAction :Resolder .
+
+:ShortCircuitFailure a :Problem ;
+    :hasRepairAction :ReplaceComponent .
+
+:CablesInverted a :Problem ;
+    :hasRepairAction :ReconnectCables .
+
+:CablesDetached a :Problem ;
+    :hasRepairAction :ReconnectCables .
+
+:CablesRuptured a :Problem ;
+    :hasRepairAction :ReplaceComponent .
+    :hasRepairAction :Resolder .
+
+#################################################################
+# Tests
+#################################################################
+
+#:VoltageTest a :Test ;
+#:IsolationTest a :Test ;
+#:SwitchContinuityTest a :Test ;
+#:PolarityTest a :Test ;
+
+
+#################################################################
+# Repair actions
+#################################################################
+
+##:ReplaceBattery a :RepairAction .
+##:ReplaceIndicator a :RepairAction .
+##:ReplaceSwitch a :RepairAction .
+#:ReconnectCables a :RepairAction .
+##:ReplaceMainLoad a :RepairAction .
+##:ReplaceParallelLoad a :RepairAction .
+#:ReplaceComponent a :RepairAction .

@@ -1,0 +1,160 @@
+@prefix : <http://www.semanticweb.org/francescocompagno/ontologies/2026/0/untitled-ontology-8/> .
+
+#################################################################
+# Components (structural decomposition)
+#################################################################
+
+:System a :Component ;
+    :hasSubComponent :PowerSupplyModule ,
+                     :ControlModule ,
+                     :LoadModule .
+
+:PowerSupplyModule a :Component ;
+    :hasSubComponent :Battery , :PowerIndicator .
+
+:ControlModule a :Component ;
+    :hasSubComponent :Switch , :InvertedCables . <--HERE
+
+:LoadModule a :Component ;
+    :hasSubComponent :MainLoad , :ParallelLoad .
+
+:Battery a :Component ;
+    :hasFunction :ProvidePower .
+
+:PowerIndicator a :Component ;
+    :hasFunction :IndicatePowerOK .
+
+:Switch a :Component ;
+    :hasFunction :EnableCurrentFlow .
+
+:InvertedCables a :Component ; <--HERE
+    :hasFunction :RouteCurrentCorrectly . <--HERE
+
+:MainLoad a :Component ;
+    :hasFunction :ConsumePower .
+
+:ParallelLoad a :Component ;
+    :hasFunction :ConsumeAuxiliaryPower .
+
+#################################################################
+# Functions (functional decomposition)
+#################################################################
+
+:ProvidePower a :Function ;
+    :defines :NoPowerProblem .
+
+:IndicatePowerOK a :Function ;
+    :dependsOn :ProvidePower ;
+    :defines :NoIndicationProblem .
+
+:EnableCurrentFlow a :Function ;
+    :dependsOn :ProvidePower ;
+    :defines :SwitchOpenProblem .
+
+:RouteCurrentCorrectly a :Function ;
+    :dependsOn :EnableCurrentFlow ;
+    :defines :WrongPolarityProblem .
+
+:ConsumePower a :Function ;
+    :dependsOn :RouteCurrentCorrectly ;
+    :defines :MainLoadInactiveProblem .
+
+:ConsumeAuxiliaryPower a :Function ; <--HERE
+    :dependsOn :RouteCurrentCorrectly ;
+    :defines :ParallelLoadInactiveProblem .
+
+#################################################################
+# Problems
+#################################################################
+
+:NoPowerProblem a :Problem ;
+    :hasCause :BatteryDepleted ;
+    :hasTest :VoltageTest .
+
+:NoIndicationProblem a :Problem ;
+    :hasCause :IndicatorFailed ;
+    :hasTest :IndicatorTest .
+
+:SwitchOpenProblem a :Problem ;
+    :hasCause :SwitchFault ;
+    :hasTest :SwitchContinuityTest .
+
+:WrongPolarityProblem a :Problem ;
+    :hasCause :CablesInverted ; <--HERE: so InvertedCables is component, CablesInverted is problem
+    :hasTest :PolarityTest .
+
+:MainLoadInactiveProblem a :Problem ;
+    :hasCause :MainLoadFailed ;
+    :hasTest :LoadCurrentTest .
+
+:ParallelLoadInactiveProblem a :Problem ;
+    :hasCause :ParallelLoadFailed ;
+    :hasTest :AuxLoadTest .
+
+#################################################################
+# Causes and Effects (causal reasoning)
+#################################################################
+
+:BatteryDepleted a :Cause ;
+    :hasEffect :PowerUnavailable ;
+    :hasRepairAction :ReplaceBattery .
+
+:IndicatorFailed a :Cause ;
+    :hasEffect :NoVisualFeedback ;
+    :hasRepairAction :ReplaceIndicator .
+
+:SwitchFault a :Cause ;
+    :hasEffect :CurrentBlocked ;
+    :hasRepairAction :ReplaceSwitch .
+
+:CablesInverted a :Cause ;
+    :hasEffect :ReverseCurrent ;
+    :hasRepairAction :ReconnectCables .
+
+:MainLoadFailed a :Cause ;
+    :hasEffect :NoPrimaryOutput ;
+    :hasRepairAction :ReplaceMainLoad .
+
+:ParallelLoadFailed a :Cause ;
+    :hasEffect :NoAuxOutput ;
+    :hasRepairAction :ReplaceParallelLoad .
+
+:PowerUnavailable a :Effect .
+:NoVisualFeedback a :Effect .
+:CurrentBlocked a :Effect .
+:ReverseCurrent a :Effect . <--HERE: so ... what is the difference with wrong polarity problem?
+:NoPrimaryOutput a :Effect .
+:NoAuxOutput a :Effect .
+
+#################################################################
+# Tests
+#################################################################
+
+:VoltageTest a :Test ;
+    :hasRepairAction :ReplaceBattery .
+
+:IndicatorTest a :Test ;
+    :hasRepairAction :ReplaceIndicator .
+
+:SwitchContinuityTest a :Test ;
+    :hasRepairAction :ReplaceSwitch .
+
+:PolarityTest a :Test ;
+    :hasRepairAction :ReconnectCables .
+
+:LoadCurrentTest a :Test ;
+    :hasRepairAction :ReplaceMainLoad .
+
+:AuxLoadTest a :Test ;
+    :hasRepairAction :ReplaceParallelLoad .
+
+#################################################################
+# Repair actions
+#################################################################
+
+:ReplaceBattery a :RepairAction .
+:ReplaceIndicator a :RepairAction .
+:ReplaceSwitch a :RepairAction .
+:ReconnectCables a :RepairAction .
+:ReplaceMainLoad a :RepairAction .
+:ReplaceParallelLoad a :RepairAction .

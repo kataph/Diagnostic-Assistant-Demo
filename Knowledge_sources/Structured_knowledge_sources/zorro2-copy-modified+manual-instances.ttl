@@ -1,0 +1,417 @@
+@prefix : <http://www.example.org/zorro/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <http://www.example.org/zorro/> .
+
+<http://www.example.org/zorro/> rdf:type owl:Ontology .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://www.example.org/zorro/defines
+:defines rdf:type owl:ObjectProperty ;
+         rdfs:subPropertyOf owl:topObjectProperty ;
+         rdfs:domain :Function ;
+         rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/dependsOn
+:dependsOn rdf:type owl:ObjectProperty ;
+           rdfs:subPropertyOf owl:topObjectProperty ;
+           rdf:type owl:TransitiveProperty ;
+           rdfs:domain :Function ;
+           rdfs:range :Function .
+
+
+###  http://www.example.org/zorro/failsVia
+:failsVia rdf:type owl:ObjectProperty ;
+          rdfs:subPropertyOf owl:topObjectProperty ;
+          rdfs:domain :Component ;
+          rdfs:range :Problem ;
+          owl:propertyChainAxiom ( :hasFunction
+                                   :defines
+                                 ) .
+
+
+###  http://www.example.org/zorro/hasCause
+:hasCause rdf:type owl:ObjectProperty ;
+          rdfs:subPropertyOf owl:topObjectProperty ;
+          rdfs:domain :Problem ;
+          rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/hasEffect
+:hasEffect rdf:type owl:ObjectProperty ;
+           rdfs:subPropertyOf owl:topObjectProperty ;
+           rdfs:domain :Problem ;
+           rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/hasFunction
+:hasFunction rdf:type owl:ObjectProperty ;
+             rdfs:subPropertyOf owl:topObjectProperty ;
+             rdfs:domain :Component ;
+             rdfs:range :Function .
+
+
+###  http://www.example.org/zorro/hasRepairAction
+:hasRepairAction rdf:type owl:ObjectProperty ;
+                 rdfs:subPropertyOf owl:topObjectProperty ;
+                 rdfs:domain :Problem ;
+                 rdfs:range :RepairAction .
+
+
+###  http://www.example.org/zorro/hasSubComponent
+:hasSubComponent rdf:type owl:ObjectProperty ;
+                 rdfs:subPropertyOf owl:topObjectProperty ;
+                 rdfs:domain :Component ;
+                 rdfs:range :Component .
+
+
+###  http://www.example.org/zorro/hasSubFunction
+:hasSubFunction rdf:type owl:ObjectProperty ;
+                rdfs:subPropertyOf owl:topObjectProperty ;
+                rdfs:domain :Function ;
+                rdfs:range :Function .
+
+
+###  http://www.example.org/zorro/hasTest
+:hasTest rdf:type owl:ObjectProperty ;
+         rdfs:subPropertyOf owl:topObjectProperty ;
+         rdfs:domain :Problem ;
+         rdfs:range :Test .
+
+
+###  http://www.w3.org/2002/07/owl#topObjectProperty
+owl:topObjectProperty rdf:type owl:ObjectProperty ;
+                      owl:inverseOf owl:topObjectProperty ;
+                      rdf:type owl:SymmetricProperty ,
+                               owl:TransitiveProperty ,
+                               owl:ReflexiveProperty .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://www.example.org/zorro/Component
+:Component rdf:type owl:Class ;
+           owl:disjointWith :Effect ,
+                            :Function ,
+                            :Problem ,
+                            :RepairAction ,
+                            :Test .
+
+
+###  http://www.example.org/zorro/Effect
+:Effect rdf:type owl:Class ;
+        owl:disjointWith :Function ,
+                         :Problem ,
+                         :RepairAction ,
+                         :Test .
+
+
+###  http://www.example.org/zorro/Function
+:Function rdf:type owl:Class ;
+          owl:disjointWith :Problem ,
+                           :RepairAction ,
+                           :Test .
+
+
+###  http://www.example.org/zorro/Problem
+:Problem rdf:type owl:Class ;
+         owl:disjointWith :RepairAction ,
+                          :Test .
+
+
+###  http://www.example.org/zorro/RepairAction
+:RepairAction rdf:type owl:Class ;
+              owl:disjointWith :Test .
+
+
+###  http://www.example.org/zorro/Test
+:Test rdf:type owl:Class .
+
+
+#################################################################
+#    Individuals
+#################################################################
+
+###  http://www.example.org/zorro/Battery
+:Battery rdf:type owl:NamedIndividual ,
+                  :Component ;
+         :failsVia :NoPower ;
+         :hasFunction :SupplyPower .
+
+
+###  http://www.example.org/zorro/BatteryDepleted
+:BatteryDepleted rdf:type owl:NamedIndividual ,
+                          :Problem ;
+                 :hasTest :VoltageTest .
+
+
+###  http://www.example.org/zorro/BurnedFilaments
+:BurnedFilaments rdf:type owl:NamedIndividual ,
+                          :Problem .
+
+
+###  http://www.example.org/zorro/Cables
+:Cables rdf:type owl:NamedIndividual ,
+                 :Component ;
+        :failsVia :NoPowerTransmission ,
+                  :OpenCircuitFailure ,
+                  :WrongPolarity ;
+        :hasFunction :TransmitPower .
+
+
+###  http://www.example.org/zorro/CablesDetached
+:CablesDetached rdf:type owl:NamedIndividual ,
+                         :Problem ;
+                :hasRepairAction :ReconnectCables .
+
+
+###  http://www.example.org/zorro/CablesInverted
+:CablesInverted rdf:type owl:NamedIndividual ,
+                         :Problem ;
+                :hasRepairAction :ReconnectCables .
+
+
+###  http://www.example.org/zorro/CablesRuptured
+:CablesRuptured rdf:type owl:NamedIndividual ,
+                         :Problem ;
+                :hasRepairAction :ReplaceComponent .
+
+
+###  http://www.example.org/zorro/ContinuityTest
+:ContinuityTest rdf:type owl:NamedIndividual ,
+                         :Test .
+
+
+###  http://www.example.org/zorro/ControlCurrentFlow
+:ControlCurrentFlow rdf:type owl:NamedIndividual ,
+                             :Function ;
+                    :defines :SwitchOpenProblem ;
+                    :dependsOn :SupplyPower ,
+                               :TransmitPower .
+
+
+###  http://www.example.org/zorro/ControlModule
+:ControlModule rdf:type owl:NamedIndividual ,
+                        :Component ;
+               :hasSubComponent :Switch .
+
+
+###  http://www.example.org/zorro/Illuminate
+:Illuminate rdf:type owl:NamedIndividual ,
+                     :Function ;
+            :defines :LightbulbDoesNotTurOn ;
+            :dependsOn :ControlCurrentFlow ,
+                       :SupplyPower ,
+                       :TransmitPower .
+
+
+###  http://www.example.org/zorro/IndicateCablePolarity
+:IndicateCablePolarity rdf:type owl:NamedIndividual ,
+                                :Function ;
+                       :defines :NoIndication ;
+                       :dependsOn :TransmitPower .
+
+
+###  http://www.example.org/zorro/IndicateLoadInputOK
+:IndicateLoadInputOK rdf:type owl:NamedIndividual ,
+                              :Function ;
+                     :defines :NoIndication ;
+                     :dependsOn :ControlCurrentFlow ,
+                                :SupplyPower ,
+                                :TransmitPower .
+
+
+###  http://www.example.org/zorro/IndicatePowerOK
+:IndicatePowerOK rdf:type owl:NamedIndividual ,
+                          :Function ;
+                 :defines :NoIndication ;
+                 :dependsOn :SupplyPower .
+
+
+###  http://www.example.org/zorro/InvertedCablesIndicator
+:InvertedCablesIndicator rdf:type owl:NamedIndividual ,
+                                  :Component ;
+                         :hasFunction :IndicateCablePolarity .
+
+
+###  http://www.example.org/zorro/IsolationTest
+:IsolationTest rdf:type owl:NamedIndividual ,
+                        :Test .
+
+
+###  http://www.example.org/zorro/LightbulbDoesNotTurOn
+:LightbulbDoesNotTurOn rdf:type owl:NamedIndividual ,
+                                :Problem ;
+                       :hasCause :BurnedFilaments .
+
+
+###  http://www.example.org/zorro/LoadModule
+:LoadModule rdf:type owl:NamedIndividual ,
+                     :Component ;
+            :hasSubComponent :MainLoad ,
+                             :ParallelLoad .
+
+
+###  http://www.example.org/zorro/MainLoad
+:MainLoad rdf:type owl:NamedIndividual ,
+                   :Component ;
+          :failsVia :LightbulbDoesNotTurOn ;
+          :hasFunction :Illuminate .
+
+
+###  http://www.example.org/zorro/NoIndication
+:NoIndication rdf:type owl:NamedIndividual ,
+                       :Problem ;
+              :hasCause :OpenCircuitFailure ;
+              :hasTest :IsolationTest .
+
+
+###  http://www.example.org/zorro/NoPower
+:NoPower rdf:type owl:NamedIndividual ,
+                  :Problem ;
+         :hasCause :BatteryDepleted ;
+         :hasTest :TestVoltage .
+
+
+###  http://www.example.org/zorro/NoPowerTransmission
+:NoPowerTransmission rdf:type owl:NamedIndividual ,
+                              :Problem ;
+                     :hasCause :CablesDetached ,
+                               :CablesRuptured ;
+                     :hasTest :ContinuityTest .
+
+
+###  http://www.example.org/zorro/OpenCircuitFailure
+:OpenCircuitFailure rdf:type owl:NamedIndividual ,
+                             :Problem ;
+                    :hasRepairAction :ReplaceComponent .
+
+
+###  http://www.example.org/zorro/ParallelLoad
+:ParallelLoad rdf:type owl:NamedIndividual ,
+                       :Component ;
+              :failsVia :NoIndication ;
+              :hasFunction :IndicateLoadInputOK .
+
+
+###  http://www.example.org/zorro/PolarityTest
+:PolarityTest rdf:type owl:NamedIndividual ,
+                       :Test .
+
+
+###  http://www.example.org/zorro/PowerIndicator
+:PowerIndicator rdf:type owl:NamedIndividual ,
+                         :Component ;
+                :failsVia :NoIndication ;
+                :hasFunction :IndicatePowerOK .
+
+
+###  http://www.example.org/zorro/PowerSupplyModule
+:PowerSupplyModule rdf:type owl:NamedIndividual ,
+                            :Component ;
+                   :hasSubComponent :Battery ,
+                                    :PowerIndicator .
+
+
+###  http://www.example.org/zorro/ReconnectCables
+:ReconnectCables rdf:type owl:NamedIndividual ,
+                          :RepairAction .
+
+
+###  http://www.example.org/zorro/ReplaceComponent
+:ReplaceComponent rdf:type owl:NamedIndividual ,
+                           :RepairAction .
+
+
+###  http://www.example.org/zorro/ShortCircuitFailure
+:ShortCircuitFailure rdf:type owl:NamedIndividual ,
+                              :Problem ;
+                     :hasRepairAction :ReplaceComponent .
+
+
+###  http://www.example.org/zorro/SupplyPower
+:SupplyPower rdf:type owl:NamedIndividual ,
+                      :Function ;
+             :defines :NoPower .
+
+
+###  http://www.example.org/zorro/Switch
+:Switch rdf:type owl:NamedIndividual ,
+                 :Component ;
+        :failsVia :SwitchOpenProblem ;
+        :hasFunction :ControlCurrentFlow .
+
+
+###  http://www.example.org/zorro/SwitchClosedProblem
+:SwitchClosedProblem rdf:type owl:NamedIndividual ,
+                              :Problem ;
+                     :hasCause :ShortCircuitFailure ;
+                     :hasTest :ContinuityTest .
+
+
+###  http://www.example.org/zorro/SwitchOpenProblem
+:SwitchOpenProblem rdf:type owl:NamedIndividual ,
+                            :Problem ;
+                   :hasCause :OpenCircuitFailure ;
+                   :hasTest :ContinuityTest .
+
+
+###  http://www.example.org/zorro/System
+:System rdf:type owl:NamedIndividual ,
+                 :Component ;
+        :hasSubComponent :ControlModule ,
+                         :LoadModule ,
+                         :PowerSupplyModule .
+
+
+###  http://www.example.org/zorro/TestVoltage
+:TestVoltage rdf:type owl:NamedIndividual ,
+                      :Test .
+
+
+###  http://www.example.org/zorro/TransmitPower
+:TransmitPower rdf:type owl:NamedIndividual ,
+                        :Function ;
+               :defines :NoPowerTransmission ,
+                        :WrongPolarity ;
+               :dependsOn :SupplyPower ;
+               rdfs:comment "Transmission between power module towards load module" .
+
+
+###  http://www.example.org/zorro/VoltageTest
+:VoltageTest rdf:type owl:NamedIndividual ,
+                      :Test .
+
+
+###  http://www.example.org/zorro/WrongPolarity
+:WrongPolarity rdf:type owl:NamedIndividual ,
+                        :Problem ;
+               :hasCause :CablesInverted ;
+               :hasTest :PolarityTest .
+
+
+#################################################################
+#    General axioms
+#################################################################
+
+[ rdf:type owl:AllDisjointClasses ;
+  owl:members ( :Component
+                :Effect
+                :Function
+                :Problem
+                :RepairAction
+                :Test
+              )
+] .
+
+
+###  Generated by the OWL API (version 4.5.29.2024-05-13T12:11:03Z) https://github.com/owlcs/owlapi

@@ -1,0 +1,238 @@
+@prefix : <http://www.example.org/zorro/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xml: <http://www.w3.org/XML/1998/namespace> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@base <http://www.example.org/zorro/> .
+
+<http://www.example.org/zorro/> rdf:type owl:Ontology ;
+                                 rdfs:comment """This ontology has been developed by Ameneh Naghdi Pour and colleagues (1). See also https://github.com/kai-vu/zorro where a serialization is present. 
+
+Since the development of such ontology is still ongoing, we (Compagno Francesco) wrote this file to reflect our understanding of the latest (unpublished) version of the ontology after discussion with the authors. 
+
+We apported also modifications:
+- addition of :monitors object property
+- deletion of Cause class
+- addition of inverseOf axiom between hasCause and hasEffect
+- replaced RepairAction and Test with a small taxonomy of DiagnosticActions
+- addition of hasSuperComponent proprty inverse of hasSubComponent
+
+
+
+
+
+(1) POUR, Ameneh Naghdi, et al. Knowledge Representation and Engineering for Smart Diagnosis of Cyber Physical Systems. In: ISWC 2024 Posters, Demos and Industry Tracks: From Novel Ideas to Industrial Practice, ISWC-Posters-Demos-Industry 2024. CEUR, 2024. p. 1-3.""" .
+
+#################################################################
+#    Object Properties
+#################################################################
+
+###  http://www.example.org/zorro/defines
+:defines rdf:type owl:ObjectProperty ;
+         rdfs:subPropertyOf owl:topObjectProperty ;
+         rdfs:domain :Function ;
+         rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/dependsOn
+:dependsOn rdf:type owl:ObjectProperty ;
+           rdfs:subPropertyOf owl:topObjectProperty ;
+           rdf:type owl:TransitiveProperty ;
+           rdfs:domain :Function ;
+           rdfs:range :Function ;
+           rdfs:comment """Input-dependency between functions:
+X dependsOn Y if X makes use of (part of) the output of Y.""" .
+
+
+###  http://www.example.org/zorro/failsVia
+:failsVia rdf:type owl:ObjectProperty ;
+          rdfs:subPropertyOf owl:topObjectProperty ;
+          rdfs:domain :Component ;
+          rdfs:range :Problem ;
+          owl:propertyChainAxiom ( :hasFunction
+                                   :defines
+                                 ) .
+
+
+###  http://www.example.org/zorro/hasCause
+:hasCause rdf:type owl:ObjectProperty ;
+          rdfs:subPropertyOf owl:topObjectProperty ;
+          owl:inverseOf :hasEffect ;
+          rdfs:domain :Problem ;
+          rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/hasEffect
+:hasEffect rdf:type owl:ObjectProperty ;
+           rdfs:subPropertyOf owl:topObjectProperty ;
+           rdfs:domain :Problem ;
+           rdfs:range :Problem .
+
+
+###  http://www.example.org/zorro/hasFunction
+:hasFunction rdf:type owl:ObjectProperty ;
+             rdfs:subPropertyOf owl:topObjectProperty ;
+             rdfs:domain :Component ;
+             rdfs:range :Function .
+
+
+###  http://www.example.org/zorro/hasRepairAction
+:hasRepairAction rdf:type owl:ObjectProperty ;
+                 rdfs:subPropertyOf owl:topObjectProperty ;
+                 rdfs:domain :Problem ;
+                 rdfs:range :DiagnosticAction .
+
+
+###  http://www.example.org/zorro/hasSubComponent
+:hasSubComponent rdf:type owl:ObjectProperty ;
+                 rdfs:subPropertyOf owl:topObjectProperty ;
+                 owl:inverseOf :hasSuperComponent ;
+                 rdfs:domain :Component ;
+                 rdfs:range :Component .
+
+
+###  http://www.example.org/zorro/hasSubFunction
+:hasSubFunction rdf:type owl:ObjectProperty ;
+                rdfs:subPropertyOf owl:topObjectProperty ;
+                rdfs:domain :Function ;
+                rdfs:range :Function .
+
+
+###  http://www.example.org/zorro/hasSuperComponent
+:hasSuperComponent rdf:type owl:ObjectProperty .
+
+
+###  http://www.example.org/zorro/hasTarget
+:hasTarget rdf:type owl:ObjectProperty ;
+           rdfs:subPropertyOf owl:topObjectProperty ;
+           rdfs:domain :DiagnosticAction ;
+           rdfs:range :Component ;
+           rdfs:comment "Each diagnostic action is conceptualized as a verb-object couple where the onject, the action target, is a component" .
+
+
+###  http://www.example.org/zorro/hasTest
+:hasTest rdf:type owl:ObjectProperty ;
+         rdfs:subPropertyOf owl:topObjectProperty ;
+         rdfs:domain :Problem ;
+         rdfs:range :DiagnosticAction .
+
+
+###  http://www.example.org/zorro/monitors
+:monitors rdf:type owl:ObjectProperty ;
+          rdfs:subPropertyOf :dependsOn ;
+          rdfs:comment """X monitors Y iff X makes use of (part of) the output of Y to provide information about Y.
+We introduced this relation to clarify certain diagnostic reasoning methods that exploit functional dependencies.""" .
+
+
+###  http://www.w3.org/2002/07/owl#topObjectProperty
+owl:topObjectProperty rdf:type owl:ObjectProperty ;
+                      owl:inverseOf owl:topObjectProperty ;
+                      rdf:type owl:SymmetricProperty ,
+                               owl:TransitiveProperty ,
+                               owl:ReflexiveProperty .
+
+
+#################################################################
+#    Data properties
+#################################################################
+
+###  http://www.example.org/zorro/hasCost
+:hasCost rdf:type owl:DatatypeProperty ;
+         rdfs:range xsd:decimal .
+
+
+#################################################################
+#    Classes
+#################################################################
+
+###  http://www.example.org/zorro/Adjust
+:Adjust rdf:type owl:Class ;
+        rdfs:subClassOf :DiagnosticAction ,
+                        [ rdf:type owl:Restriction ;
+                          owl:onProperty :hasCost ;
+                          owl:hasValue 5
+                        ] ;
+        rdfs:comment "Adjusting, refitting, tuning, reconfiguring, or repairing a component without replacing it." .
+
+
+###  http://www.example.org/zorro/Component
+:Component rdf:type owl:Class ;
+           owl:disjointWith :DiagnosticAction ,
+                            :Effect ,
+                            :Function ,
+                            :Problem .
+
+
+###  http://www.example.org/zorro/DiagnosticAction
+:DiagnosticAction rdf:type owl:Class ;
+                  rdfs:subClassOf [ rdf:type owl:Restriction ;
+                                    owl:onProperty :hasTarget ;
+                                    owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+                                    owl:onClass :Component
+                                  ] ;
+                  owl:disjointWith :Effect ,
+                                   :Function ,
+                                   :Problem ;
+                  rdfs:comment "Any action that service personnel may perform on a component while addressing an equipment failure." .
+
+
+###  http://www.example.org/zorro/Effect
+:Effect rdf:type owl:Class ;
+        owl:disjointWith :Function ,
+                         :Problem .
+
+
+###  http://www.example.org/zorro/Function
+:Function rdf:type owl:Class ;
+          owl:disjointWith :Problem .
+
+
+###  http://www.example.org/zorro/Observe
+:Observe rdf:type owl:Class ;
+         rdfs:subClassOf :DiagnosticAction ,
+                         [ rdf:type owl:Restriction ;
+                           owl:onProperty :hasCost ;
+                           owl:hasValue 1
+                         ] ;
+         rdfs:comment "Visually inspecting or analyzing a component without tools and without physically manipulating it." .
+
+
+###  http://www.example.org/zorro/Problem
+:Problem rdf:type owl:Class .
+
+
+###  http://www.example.org/zorro/Replace
+:Replace rdf:type owl:Class ;
+         rdfs:subClassOf :DiagnosticAction ,
+                         [ rdf:type owl:Restriction ;
+                           owl:onProperty :hasCost ;
+                           owl:hasValue 10
+                         ] ;
+         rdfs:comment "Swapping a component with another component." .
+
+
+###  http://www.example.org/zorro/Test
+:Test rdf:type owl:Class ;
+      rdfs:subClassOf :DiagnosticAction ,
+                      [ rdf:type owl:Restriction ;
+                        owl:onProperty :hasCost ;
+                        owl:hasValue 3
+                      ] ;
+      rdfs:comment "Testing or measuring a component using tools and/or by actively manipulating it." .
+
+
+#################################################################
+#    General axioms
+#################################################################
+
+[ rdf:type owl:AllDisjointClasses ;
+  owl:members ( :Adjust
+                :Observe
+                :Replace
+                :Test
+              )
+] .
+
+
+###  Generated by the OWL API (version 4.5.29.2024-05-13T12:11:03Z) https://github.com/owlcs/owlapi
