@@ -55,5 +55,6 @@ a video pitching the demo is present in the file `TOADD'
 
 - upload video
 - clean code
+- clean hidden files from repo
 - add more scenarios
 - more testing
