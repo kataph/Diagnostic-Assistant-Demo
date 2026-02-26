@@ -58,8 +58,9 @@ a video pitching the demo is present in the file `TOADD'
 
 ## TODOS
 
-- upload video
-- clean code
-- clean hidden files from repo
-- add more scenarios
-- more testing
+- [ ] upload video
+- [ ] clean code
+- [ ] clean CLI interface and configuration
+- [ ] clean hidden files from repo
+- [ ] add more scenarios
+- [ ] more testing
