@@ -39,7 +39,7 @@ The core of the codebase, in addition to the abstract layout of the scenario env
 
 Currenly, two such implementations are present. One is a monolithic LLM agent, the other is a neuro-symbolic (mainly symbolic) agent. The structure of the LLM agent is straightfoward, while the one of the neuro-symbolic agent is more complicated. The picture below summarizes it, while all the details can be read in the corresponding file (`diagnosticAssistantEvidenceKGOptimal.py').  
 
-![High level description of the two implementation of diagnostic assistants](environment_architecture.png)
+![High level description of the two implementation of diagnostic assistants](assitant_architecture.png)
 
 ## Usage
 
@@ -50,3 +50,10 @@ The system description arguments are `text-input-file' and `diagram', containing
 ## Video
 
 a video pitching the demo is present in the file `TOADD'
+
+## TODOS
+
+- upload video
+- clean code
+- add more scenarios
+- more testing
