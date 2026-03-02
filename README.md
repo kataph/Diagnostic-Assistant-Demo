@@ -77,7 +77,7 @@ The overall managing of the interactions between the agents happens through an o
 
 ## Video
 
-a video pitching the demo is present in the releases ([https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0](https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0)) and can also be seen as an unlisted video on Youtube at here: [https://youtu.be/_XpeIMkHmxI](https://youtu.be/beh18vLPm30). 
+a video pitching the demo is present in the releases ([https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0](https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0)) and can also be seen as an unlisted video on Youtube at here: [https://youtu.be/beh18vLPm30](https://youtu.be/beh18vLPm30). 
 
 ## TODOS
 
