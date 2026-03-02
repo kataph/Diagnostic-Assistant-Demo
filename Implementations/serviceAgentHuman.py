@@ -60,6 +60,8 @@ class ServiceAgentHuman(ServiceAgent):
         answer = (await self.io.read_line("\nDo you consider the diagnosis done now? [y/else]\n> ")).strip().lower() 
         if answer not in self.AFFERMATIVE_WORDS:
             return (False, None)
+        # Comment 3 lines above and uncomment line below for faster interaction
+        # return (False, None)
         
         answer = (await self.io.read_line("\nDo you want to record the putative root cause? [y/else]\n> ")).strip().lower()
         if answer not in self.AFFERMATIVE_WORDS:

@@ -27,6 +27,7 @@ run_diagnostic_scenario.py
 scenarios.xlsx
 voice_client.py
 voice_server.py
+eswc 2026 video.mov
 ```
 
 The file `run_diagnostic_scenario.py` is the code entry point (see below section on usage). Its function is to instantiate a configuration object (described in `configuration.py`), to instantiate the agents for a scenario and to orchestrate such a scenario.
@@ -76,13 +77,15 @@ The overall managing of the interactions between the agents happens through an o
 
 ## Video
 
-a video pitching the demo is present in the file `TOADD`
+a video pitching the demo is present in the file `eswc 2026 video.mov`
 
 ## TODOS
 
-- [ ] upload video
+- [x] upload video
+- [ ] adjust kg of ambient light sensor
 - [ ] clean code
 - [ ] clean CLI interface and configuration
 - [ ] clean hidden files from repo
 - [ ] add more scenarios
 - [ ] more testing
+- [ ] fine tune flickering failure mode

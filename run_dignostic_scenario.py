@@ -164,9 +164,14 @@ asyncio.run(run_diagnostic_scenario(system, saboteur, service_agent, assistant, 
 
 # clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM
 
-# clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt \
-# --log-level 10 --rounds 5 \
-# --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
-# --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
-# --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
-# --saboteur Human --service Human --assistant LLM --interface cli
+"""
+clear; python -m run_dignostic_scenario --text-input-file "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
+--diagram "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
+--LLM-assistant-model "gpt-5.2" \
+--log-level 10 --rounds 5 \
+--kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
+--system 3CubesSystem \
+--ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+--saboteur Human --service Human --assistant LLM --interface cli
+"""
