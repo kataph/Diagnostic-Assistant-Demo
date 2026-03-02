@@ -76,11 +76,11 @@ The overall managing of the interactions between the agents happens through an o
 
 ## Video
 
-a video pitching the demo is present in the file `TOADD`
+a video pitching the demo is present in the releases (https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0)
 
 ## TODOS
 
-- [ ] upload video
+- [X] upload video
 - [ ] clean code
 - [ ] clean CLI interface and configuration
 - [ ] clean hidden files from repo
