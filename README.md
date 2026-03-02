@@ -24,7 +24,7 @@ static
 configuration.py
 environment_classes.py
 run_diagnostic_scenario.py
-scenarios.xlsx
+scenarios.csv
 voice_client.py
 voice_server.py
 eswc 2026 video.mov
