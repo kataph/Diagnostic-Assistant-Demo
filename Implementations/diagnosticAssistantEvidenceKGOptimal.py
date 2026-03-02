@@ -19,9 +19,10 @@ from environment_classes import AssistantState, DiagnosticAction, DiagnosticActi
 from Utilities.utils import get_key, get_set
 from Utilities.caching import possibly_cached_runner_run
 from Utilities.assorted_prompts import PROMPTS
-from Utilities.topology import minimal_dense_set_gpt as minimal_dense_set
+from Utilities.topology import minimum_open_dense_set_gpt_thesis as minimal_dense_set
 from Utilities.retrieving_gpt import retrieve_top_chunks
 from Utilities.OWL_reasoning import expand_with_hermit
+from Utilities.asyncio_utils import async_friendly_input
 
 
 
@@ -48,10 +49,10 @@ class HeuristicTestingProcedure(DiagnosticPlan):
     
     def get_information_gain(self, action: DiagnosticAction) -> float:
         """
-        Return the information gain per unit cost for a diagnostic action.
+        Return the expected information gain per unit cost for a diagnostic action.
 
         The gain is computed as:
-            log2(T / (T - A)) / cost
+            [(A/T)*log2(T/A) + ((T-A)/T))*log2(T/(T-A))]/ cost
 
         where T is the total number of unique problems and A is the number
         of problems associated with the given action.
@@ -62,12 +63,14 @@ class HeuristicTestingProcedure(DiagnosticPlan):
         """
         total_problems = set().union(*self.test2problem.values())
             
-        total_problems_count = len(total_problems)
-        associated_problems_count = len(self.test2problem[action])
-        if total_problems_count == associated_problems_count:
-            return float('inf')
+        T = total_problems_count = len(total_problems)
+        A = associated_problems_count = len(self.test2problem[action])
+        B = non_associated_problems_count = total_problems_count - associated_problems_count
+        if (total_problems_count == associated_problems_count) or (total_problems_count == non_associated_problems_count):
+            return float(0)
         cost = action.get_cost()
-        return math.log2(total_problems_count/(total_problems_count-associated_problems_count))/cost
+        expected_information_gain = ((A/T) * math.log2(T/A)) + ((B/T) * math.log2(T/B))
+        return expected_information_gain/cost
 
     def get_next_action(self, logger: Logger) -> DiagnosticAction | None:
         """
@@ -84,10 +87,10 @@ class HeuristicTestingProcedure(DiagnosticPlan):
     
     async def update_test_problem_matrix(self, last_action_outcome: DiagnosticActionResult, logger: Logger) -> None:
         """It will reduce the size of the test2problem dictionary depening on the outcome of the last executed action"""
-        async def get_simplified_outcome(free_text_outcome: str) -> LiteralType["Anomalous", "Nominal"]:
-            out = input(f"The action you've executed was {last_action_outcome.action.get_name()} and was aimed to individuate the problem(s) {self.test2problem[last_action_outcome.action]}. Did you find in your testing some anomalous behavior that suggests the presence of the aforementioned problems? Write 'Anomalous' if so, 'Nominal' otherwise\n> ")
-            while out not in ["Anomalous", "Nominal"]:
-                out = input(f"Please, reply with either 'Anomalous' or 'Nominal'\n> ")
+        async def get_simplified_outcome(free_text_outcome: str) -> LiteralType["anomalous", "nominal"]:
+            out = await async_friendly_input(f"The action you've executed was {last_action_outcome.action.get_name()} and was aimed to individuate the problem(s) {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])}. Did you find in your testing some anomalous behavior that suggests the presence of the aforementioned problems? Write 'anomalous' if so, 'nominal' otherwise\n> ")
+            while out not in ["anomalous", "nominal"]:
+                out = await async_friendly_input(f"Please, reply with either 'anomalous' or 'nominal'\n> ")
             return out
                 
         if not last_action_outcome.simplified_outcome or last_action_outcome.simplified_outcome == "":
@@ -95,13 +98,15 @@ class HeuristicTestingProcedure(DiagnosticPlan):
         else:
             simple_outcome = last_action_outcome.simplified_outcome
         match simple_outcome:
-            case 'Anomalous': # Anomalous/Y means that anomalous behavior was found by testing: the action is described as a Y/N question, where Y refers to non-nominal behavior, linked to some failure modes, while Nominal/N refers to nominal behavior, and is linked to the complement set of such failure modes. --> 'Y': keep only the linked failure modes; 'N': remove the linked failure modes
-                logger.info(f"I am keeping only the problems {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])} in my plan")
+            case 'anomalous': # Anomalous/Y means that anomalous behavior was found by testing: the action is described as a Y/N question, where Y refers to non-nominal behavior, linked to some failure modes, while Nominal/N refers to nominal behavior, and is linked to the complement set of such failure modes. --> 'Y': keep only the linked failure modes; 'N': remove the linked failure modes
+                logger.info(f"I am keeping only the problems {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])} in my plan and removing the last test")
                 # Keeps only problem individuated by test
                 self.test2problem = {key: [problem for problem in value if problem in self.test2problem[last_action_outcome.action]] for key, value in self.test2problem.items()}
                 # drops tests tha are not linked to problems anymore (if any)
                 self.test2problem = {key: value for key, value in self.test2problem.items() if len(value) > 0 }
-            case 'Nominal':
+                # drops the last test
+                self.test2problem.pop(last_action_outcome.action, None)
+            case 'nominal':
                 logger.info(f"I am removing the problems {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])} in my plan")
                 # Removes problems individuated by test
                 self.test2problem = {key: [problem for problem in value if problem not in self.test2problem[last_action_outcome.action]] for key, value in self.test2problem.items()}
@@ -158,8 +163,10 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         else: # plan is currently exhausted, must try instantiating a new plan
             # will discard current candidates and try again 
             self.logger.warning("Current plan exhausted... I will remove the current candidates from each piece of evidence, try to generate a new plan and call my suggest_action method again.")
-            for piece in self.state.current_pieces_of_evidence:
-                piece = piece.difference(set(self.state.current_candidates))
+            for i, piece in enumerate(self.state.current_pieces_of_evidence):
+                self.logger.debug(f"piece number {i} was of length {len(piece)}...")
+                piece.difference_update(set(self.state.current_candidates))
+                self.logger.debug(f"... now it is of length {len(piece)}.")
             self.state.current_pieces_of_evidence = [piece for piece in self.state.current_pieces_of_evidence if len(piece) > 0]
             self.state.current_candidates = minimal_dense_set(self.state.current_pieces_of_evidence, self.logger)
             self.logger.info(f"Starting pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)} --- Starting candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}")
@@ -427,6 +434,13 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
         raise ValueError(f"Input a symptom of type {type(symptom)} instead of str. Raw value: {symptom}")
     
     all_components = get_subcomponents(ontology_path, schema_path, system)
+    all_components = list(all_components)
+    all_components.sort(key=str)
+
+    if not all_components:
+        raise ValueError(f"No component found when querying kg at location {schema_path} with system {system}! Check if there even is such a system in the kg?")
+        
+        
     logger.info(f"The set of all possible candidate components is: {[split_uri(x)[1] for x in all_components]}")
     prompt = PROMPTS.AnomalousNominalComponentExtractor_agent_v2.value
     
@@ -456,8 +470,10 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
         name = "anomalousNominalExtractor", 
         instructions = prompt, 
         tools = [function_tool(retrieve_component_context_tool)],
-        output_type = AnomalousNominalExtractorOutput)
+        output_type = AnomalousNominalExtractorOutput,
+        model = configuration.NS_ASSISTANT_MODEL)
     
+    logger.debug(f"Entering in possibly cached with configuration.USE_CACHE {configuration.USE_CACHE}")
     output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input = PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom = str(symptom), components = "\n    ".join(str(component) for component in all_components)), cached=configuration.USE_CACHE)
     logger.info(f"from the symptom '{symptom}' found {output}")
     return [URIRef(url_str) for url_str in output.components_suggesting_anomaly_presence], [URIRef(url_str) for url_str in output.components_suggesting_nominal_behavior]
@@ -666,13 +682,13 @@ ORDER BY ?test ?problem ?cost
 
     return [(row.test, row.problem, row.cost) for row in results]
 
-import rdflib
-out = get_finest_problems_tests_from_components(
-    ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
-    schema_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl",
-    subjects={rdflib.term.URIRef('http://www.example.org/zorro/Battery')},
-    expand=False,
-)
+# import rdflib
+# out = get_finest_problems_tests_from_components(
+#     ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
+#     schema_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl",
+#     subjects={rdflib.term.URIRef('http://www.example.org/zorro/Battery')},
+#     expand=False,
+# )
 # out = get_diagnostic_action_properties(
 #     ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
 #     subject=rdflib.term.URIRef('http://www.example.org/zorro/InspectBattery'),

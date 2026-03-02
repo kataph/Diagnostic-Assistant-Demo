@@ -1,9 +1,28 @@
 import asyncio
 from functools import partial, wraps
 import hashlib
+import os
 import pickle 
 import inspect
 import logging
+
+#### sets up logging for the caching funtions
+CACHE_FOLDER = "Cache"
+cache_logger = logging.getLogger("cache_logger")
+cache_logger.setLevel(10) # INFO is 20
+
+os.makedirs(CACHE_FOLDER, exist_ok=True)
+file_handler = logging.FileHandler(os.path.join(CACHE_FOLDER, "cache_logs.txt"), encoding="utf-8")
+
+fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+datefmt = "%Y-%m-%d %H:%M:%S"
+formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
+file_handler.setFormatter(formatter)
+        
+cache_logger.addHandler(file_handler)
+        
+        
+        
 
 
 from agents import Runner
@@ -12,7 +31,7 @@ from openai import OpenAI
 from diskcache import Cache
 
 # This is a async,agent-friendly caching mechanism from chatgpt...
-cache = Cache("Cache")
+cache = Cache(CACHE_FOLDER)
 # cache.clear() # this will remove cache storage, comment to make caching persistent. Uncomment to reset the cache content.
 _MISSING = object()  # one shared sentinel
 
@@ -31,9 +50,9 @@ def add_disk_cacheing_option(func):
         else:
             key = (func.__module__, func.__qualname__, tuple(repr(arg) for arg in args), frozenset(repr(kwarg) for kwarg in kwargs.items()))
             if key in cache:
-                logging.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
+                cache_logger.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
                 return cache[key]
-            logging.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
+            cache_logger.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
             result = func(*args, **kwargs)
             cache[key] = result
             return result
@@ -51,9 +70,9 @@ def add_disk_cacheing_option_for_methods(func):
         else:
             key = (func.__module__, func.__qualname__, tuple(repr(arg) for arg in args[1:]), frozenset(repr(kwarg) for kwarg in kwargs.items()))
             if key in cache:
-                logging.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
+                cache_logger.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
                 return cache[key]
-            logging.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
+            cache_logger.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
             result = func(*args, **kwargs)
             cache[key] = result
             return result
@@ -92,11 +111,11 @@ def async_disk_cache_runner_run(func):
 
         cached_value = await asyncio.to_thread(get_from_cache)
         if cached_value is not _MISSING:
-            logging.warning(f"[CACHE HIT] {agent_id} / key={key[:8]}...")
-            logging.warning(f"[INPUT] {conversation} ***")
+            cache_logger.warning(f"[CACHE HIT] {agent_id} / key={key[:8]}... / raw={raw}")
+            cache_logger.warning(f"[INPUT] {conversation} ***")
             return cached_value
 
-        logging.info(f"[CACHE MISS] {agent_id} / key={key[:8]}...")
+        cache_logger.info(f"[CACHE MISS] {agent_id} / key={key[:8]}... / raw={raw}")
 
         # 4) call underlying function
         result = await func(agent, *args, **kwargs)
@@ -114,7 +133,7 @@ def async_disk_cache_CLI(func):
     @wraps(func)
     async def wrapper(*args, **kwargs):
         use_cache = kwargs.pop("cache", True)
-        logging.warning(f"CLI CACHING ACTIVATING WITH use_cache {use_cache}...")
+        cache_logger.warning(f"CLI CACHING ACTIVATING WITH use_cache {use_cache}...")
 
         if not use_cache:
             return await func(*args, **kwargs)
@@ -126,9 +145,9 @@ def async_disk_cache_CLI(func):
         # Read from disk (non-blocking)
         cached_value = await asyncio.to_thread(cache.get, key)
         if cached_value is not None:
-            logging.warning(f"[CACHE HIT] raw={raw} --- key={key[:8]}...")
+            cache_logger.warning(f"[CACHE HIT] raw={raw} --- key={key[:8]}...")
             return cached_value
-        logging.warning(f"[CACHE MISS] raw={raw} --- key={key[:8]}...")
+        cache_logger.warning(f"[CACHE MISS] raw={raw} --- key={key[:8]}...")
 
         # Execute function
         result = await func(*args, **kwargs)
