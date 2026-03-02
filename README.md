@@ -77,11 +77,11 @@ The overall managing of the interactions between the agents happens through an o
 
 ## Video
 
-a video pitching the demo is present in the file `eswc 2026 video.mov`
+a video pitching the demo is present in the releases (https://github.com/kataph/Diagnostic-Assistant-Demo/releases/tag/v1.0)
 
 ## TODOS
 
-- [x] upload video
+- [X] upload video
 - [ ] adjust kg of ambient light sensor
 - [ ] clean code
 - [ ] clean CLI interface and configuration
