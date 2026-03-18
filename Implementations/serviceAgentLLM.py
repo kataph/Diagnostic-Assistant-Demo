@@ -12,15 +12,16 @@ class LightDiagnosticActionResult(BaseModel):
     action_target: str
     action_outcome: str
 class TesterCostrainedOutput(BaseModel):
-  system_works_again: bool
+  root_cause_identified: bool
   diagnostic_actions_results: list[LightDiagnosticActionResult]
   def __str__(self):
-     return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
+     return "root_cause_identified: "+str(self.root_cause_identified)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
 class TesterCostrainedLightOutput(BaseModel):
-  system_works_again: bool
+  root_cause_identified: bool
+  why_is_the_root_cause_identified_or_not: str
   action_outcome: str
   def __str__(self):
-     return "system_works_again: "+str(self.system_works_again)+f"\ndiagnostic_action_outcome: {self.action_outcome}"
+     return "root_cause_identified: "+str(self.root_cause_identified)+f" With motivation: {self.why_is_the_root_cause_identified_or_not} "+f"\ndiagnostic_action_outcome: {self.action_outcome}"
 
 class ObservationList(BaseModel):
     observations: list[str]
@@ -32,32 +33,34 @@ class ObservationList(BaseModel):
         return self.__str__()
 
 
-serviceAgent = Agent(
-  name="CostrainedInputTester",
-  instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize diagnostic actions to carry out on the system to determine the root cause of the fault. The diagnostic actions are given as a list of (action_type, action_target, action_description) tuples. You have to answer your colleague with the results of the diagnostic actions. When the trainee executes a diagnostic action that repairs the system, record it in the boolean field 'system_works_again' (otherwise such field must be set to false). 
+# serviceAgent = Agent(
+#   name="CostrainedInputTester",
+#   instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize diagnostic actions to carry out on the system to determine the root cause of the fault. The diagnostic actions are given as a list of (action_type, action_target, action_description) tuples. You have to answer your colleague with the results of the diagnostic actions. When the trainee executes a diagnostic action that repairs the system, record it in the boolean field 'system_works_again' (otherwise such field must be set to false). 
   
-  Your output must be as follows:
-  (1) system_works_again: a boolean field indicating if ther system has been repaired successfully by the diagnostic 
-  (2) a list of (action_type, action_target, action_outcome) tuples, where action_type and action_target fields must be the same as the ones you got in input and action_outcome must be a sentence describing what the diagnostic action result was. 
-  Always respond concisely with just the results of the diagnostic actions without further inference or considerations. Also do not reveal directly what the root cause is, only that you answer describing the results of the diagnostic actions. """,
-  model="gpt-4.1",
-  output_type=TesterCostrainedOutput,
-)
+#   Your output must be as follows:
+#   (1) system_works_again: a boolean field indicating if ther system has been repaired successfully by the diagnostic 
+#   (2) a list of (action_type, action_target, action_outcome) tuples, where action_type and action_target fields must be the same as the ones you got in input and action_outcome must be a sentence describing what the diagnostic action result was. 
+#   Always respond concisely with just the results of the diagnostic actions without further inference or considerations. Also do not reveal directly what the root cause is, only that you answer describing the results of the diagnostic actions. """,
+#   model="gpt-4.1",
+#   output_type=TesterCostrainedOutput,
+# )
+SERVICE_MODEL = "gpt-4.1"
 serviceAgent_v2 = Agent(
   name="CostrainedInputTester",
-  instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. The diagnostic action will be given as an (action_type, action_target, action_description) tuple. You have to answer your colleague with the results of the diagnostic action. When the trainee executes a diagnostic action that repairs the system, record it in the boolean field 'system_works_again' (otherwise such field must be set to false). 
+  instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. The diagnostic action will be given as an (action_type, action_target, action_description) tuple. You have to answer your colleague with the results of the diagnostic action. When the trainee executes a diagnostic action that individuates the root cause of the failure (repair is not necessary), record it in the boolean field 'root_cause_identified' (otherwise such field must be set to false). 
   
   Your output must be as follows:
-  (1) system_works_again: a boolean field indicating if ther system has been repaired successfully by the diagnostic 
-  (2) action_outcome: a sentence a sentence describing what the diagnostic action result was. 
+  (1) root_cause_identified: a boolean field indicating if the root cause has been identified successfully by the diagnostic action. A root cause is identified successfully if during or after the execution of the action one gains enough information to deduce a specific, unique problem/issue that was the cause of the system failure. If one is still not able to identify a unique problem the root cause has not been identified, so if one, for instance, cannot distinguish between two problems, then the root cause has not been identified. Of course, one could always switch to considering a more general problem that covers the union of multiple problems and state that that problem was the root cause, and that the root cause has been identified, but we do not want this arbitrariness: please, use attent judgment and analyze the context to decide when a problem is a root cause or not. Keep in mind, as guidance, that for us a problem is a root cause when its individuation allows the service engineer to restore the system function with the minimal effort and cost. 
+  (2) why_is_the_root_cause_identified_or_not: a text field where you have to write (in a very brief way!!) why do you think that the root cause has/has not been successfully identified
+  (3) action_outcome: a sentence a sentence describing what the diagnostic action result was. 
   Always respond concisely with just the results of the diagnostic actions without further inference or considerations. Also do not reveal directly what the root cause is, only that you answer describing the results of the diagnostic actions. """,
-  model="gpt-4.1",
+  model=SERVICE_MODEL,
   output_type=TesterCostrainedLightOutput,
 )
 serviceAgent_initialObservations = Agent(
   name="CostrainedInputTester_start",
-  instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. In order to make the first hypothesis, the trainee needs to be supplied a series of observations about the system: using your knowledge of the system behavior, write down a list relevant remarks about the system. Such remarks an be both about the part of the current behavior of the system that is anomalous or that is nominal. You get to decide what is relevant and what is not. """,
-  model="gpt-4.1",
+  instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. In order to make the first hypothesis, the trainee needs to be supplied a series of observations about the system: using your knowledge of the system behavior, write down a list relevant remarks about the system. Such remarks an be both about the part of the current behavior of the system that is anomalous or that is nominal. You get to decide what is relevant and what is not. Of course, you MUST NOT leak any information about the root cause to the trainee, as that would defeat the point of the exercise. Only tell the trainee about superficial, immediately-observable symptoms! Also please try not to give hints or suggestions to the trainee, only describe what can objectively be perceived, not what can be deduced.""",
+  model=SERVICE_MODEL,
   output_type=ObservationList,
 )
 
@@ -68,6 +71,12 @@ class ServiceAgentLLM(ServiceAgent):
         super().__init__(configuration)
         self.patience_level = configuration.MAX_NUMBER_OF_ROUNDS - 1 # simulates an user patience
         self.annoyance_level = 0 # simulates an user patience
+        self.root_cause_identified = False
+        self.LLM_elaborates_initial_observations = False
+        
+    @property
+    def description(self) -> str:
+        return super().description + "_" + f"patience={self.patience_level};service_model={SERVICE_MODEL}"
         
     def _get_input_for_initial_observations(self, system: SystemDescription, root_cause_description: RootCauseDescription) -> list[dict]:
         return (get_conversation_start(system) + 
@@ -85,15 +94,18 @@ class ServiceAgentLLM(ServiceAgent):
         root_cause_description: RootCauseDescription,
     ) -> list[Observation]:
         
-        o: ObservationList = await possibly_cached_runner_run(serviceAgent_initialObservations, input=self._get_input_for_initial_observations(system, root_cause_description), cached=self.configuration.USE_CACHE)
-        self.logger.info(f"First observations about the system: {str(o)}")
-        return o        
+        # In this case the LLM re-elaborates or otherwise directly conceives the initial observations
+        if self.LLM_elaborates_initial_observations or not root_cause_description.symptoms_descriptions:
+            o: ObservationList = await possibly_cached_runner_run(serviceAgent_initialObservations, input=self._get_input_for_initial_observations(system, root_cause_description), cached=self.configuration.USE_CACHE)
+            # silly casting issues
+            observations = [Observation(description = obs) for obs in o.observations]
+        # In this case the initial observations are those already present in the symptoms of the root cause description
+        else:
+            observations = [Observation(description = symp.simple_string()) for symp in root_cause_description.symptoms_descriptions]
+        self.logger.info(f"First observations about the system: {str(observations)}")
+        return observations
 
     async def execute_action(self, system: SystemDescription, action: DiagnosticAction, root_cause_description: RootCauseDescription) -> DiagnosticActionResult:
-        
-        def __init__(self):
-            self.system_works_again = False
-            
         conversation_history_service = (
             self._get_input_for_initial_observations(system, root_cause_description) + 
             # For the tester, the conversation history does not grow: it does not need to rememer previous tests, and it would also risk losing memory or becoming biased
@@ -108,9 +120,9 @@ class ServiceAgentLLM(ServiceAgent):
             }])
 
         o: TesterCostrainedLightOutput = await possibly_cached_runner_run(serviceAgent_v2, input=conversation_history_service, cached=self.configuration.USE_CACHE)
-        self.system_works_again = o.system_works_again        
+        self.root_cause_identified = o.root_cause_identified        
         self.logger.info(f"Agent executed action: {action.get_name()} with outcome {o.action_outcome}")
-        self.logger.info(f"Agent thinks that system works again? {o.system_works_again}")
+        self.logger.info(f"Agent thinks that the root cause has been found? {o.root_cause_identified}. Why? {o.why_is_the_root_cause_identified_or_not}")
         return DiagnosticActionResult(action=action, outcome=o.action_outcome)        
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: RootCauseDescription) -> tuple[bool, None]:
@@ -122,4 +134,4 @@ class ServiceAgentLLM(ServiceAgent):
             self.logger.info("The Service agent decides it is not worth using the tool...")
             return (True, None) 
         self.annoyance_level += 1
-        return (self.system_works_again, None)
+        return (self.root_cause_identified, None)

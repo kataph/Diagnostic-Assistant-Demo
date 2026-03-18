@@ -7,6 +7,7 @@ from .saboteurLLMFaultTree import SaboteurLLMFaultTree
 from .serviceAgentHuman import ServiceAgentHuman
 from .serviceAgentLLM import ServiceAgentLLM
 from .serviceAgentMock import ServiceAgentMock
+from .saboteurFixedScenario import SaboteurFixedScenario
 
 __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
 "DiagnosticAssistantLLM",
@@ -16,4 +17,5 @@ __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
 "SaboteurLLMFaultTree",
 "ServiceAgentHuman",
 "ServiceAgentLLM",
-"ServiceAgentMock"]
+"ServiceAgentMock",
+"SaboteurFixedScenario"]

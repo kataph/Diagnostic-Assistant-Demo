@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from configuration import Configuration
 from voice_client import send_prompt, get_user_text
+from time import perf_counter
 
 
 class SystemDescription(BaseModel):
@@ -26,6 +27,8 @@ empty_sys_descr = SystemDescription(text_input="", file_id="")
 class SymptomDescription(RootModel[str]):
   def __str__(self):
      return f"'{self.root}'"
+  def simple_string(self) -> str:
+     return self.root
 
 class SymptomDescriptions(RootModel[list[SymptomDescription]]):
   def __iter__(self) -> Iterator[SymptomDescription]:
@@ -90,7 +93,7 @@ class DiagnosticAction(BaseModel):
 class DiagnosticActionResult(BaseModel):
   action: DiagnosticAction
   outcome: str
-  simplified_outcome: Optional[Literal['Anomalous', 'Nominal']] = None
+  simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
   
   def __str__(self):
     return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
@@ -372,14 +375,18 @@ async def run_diagnostic_scenario(
     # 3) Diagnostic loop
     last_outcome: Optional[DiagnosticActionResult] = None
     suggested_actions_history: list[DiagnosticActionResult] = []
+    time_vector: list[float] = []
 
     while True:
         action = await assistant.suggest_action()
         if action is None:
             print("\nAssistant has no further actions to suggest.")
         else:
+            start = perf_counter()
             last_outcome = await service_agent.execute_action(system, action, sabotage_root)
+            end = perf_counter()
             suggested_actions_history.append(last_outcome)
+            time_vector.append(elapsed_time:=end-start)
             await assistant.record_outcome(last_outcome)
 
         # Ask service agent if it wants to finish
@@ -403,6 +410,8 @@ async def run_diagnostic_scenario(
     cost_vector = [x.action.get_cost() for x in suggested_actions_history]
     scenario_logger.info(f"Cost vector: {cost_vector}")
     scenario_logger.info(f"Total cost: {sum(cost_vector)} --- Number of suggestions: {len(cost_vector)} ")
+    scenario_logger.info(f"Time vector: {time_vector}")
+    scenario_logger.info(f"Average time: {sum(time_vector)/len(time_vector) if time_vector else 0}")
     scenario_logger.debug(f"Diagnostic memory: {assistant.state.diagnostic_scenario_memory} ")
 
     # print("\nFull assistant state:")

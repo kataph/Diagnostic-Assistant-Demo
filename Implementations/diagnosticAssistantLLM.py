@@ -38,7 +38,7 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         
     @property
     def description(self) -> str:
-        super().description + "_" + self.configuration.LLM_ASSISTANT_MODEL
+        return super().description + "_" + self.configuration.LLM_ASSISTANT_MODEL
         
     async def setup(self, observations: list[Observation]) -> None:
         self.state.initial_observations = observations.copy()

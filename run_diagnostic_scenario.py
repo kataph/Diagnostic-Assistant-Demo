@@ -5,7 +5,7 @@ import logging
 import rdflib
 
 from configuration import Configuration
-from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM
+from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario
 from environment_classes import SystemDescription, run_diagnostic_scenario
 
 
@@ -14,7 +14,7 @@ def parse_configuration() -> Configuration:
 
     # Required Positional Arguments
 
-    parser.add_argument("--saboteur", type=str, default="Human", help="Type of saboteur agent (['Human', 'LLMFaultTree'])")
+    parser.add_argument("--saboteur", type=str, default="Human", help="Type of saboteur agent (['Human', 'LLMFaultTree', 'FixedScenario'])")
     parser.add_argument("--service", type=str, default="Human", help="Type of service agent (['Human', 'LLM', 'Mock'])")
     parser.add_argument("--assistant", type=str, default="EvidenceKGOptimal", help="Type of diagnostic assistant agent (['LLM', 'EvidenceKGOptimal', 'Mock'])")
 
@@ -44,6 +44,9 @@ def parse_configuration() -> Configuration:
     
     # Diagnostic assistant
     parser.add_argument("--LLM-assistant-model", type=str, default="gpt-4.1", help="Model name for the LLM-monolithic diagnostic assistant")
+    
+    # Fized saboteur scenario
+    parser.add_argument("--forced-scenario", type=int, default=0, help="Scenario id when using fixed scenario saboteur.")
     
     # Logic & Performance Flags
     parser.add_argument("--cache", action="store_true", help="Enable global caching")
@@ -96,6 +99,7 @@ def parse_configuration() -> Configuration:
         
         LLM_ASSISTANT_MODEL = args.LLM_assistant_model,
         NS_ASSISTANT_MODEL = args.NS_assistant_model,
+        FORCED_SCENARIO_ID = args.forced_scenario,
         
     )
 
@@ -132,6 +136,8 @@ match configuration.SABOTEUR_TYPE:
         saboteur = SaboteurHuman(configuration)
     case 'LLMFaultTree':
         saboteur = SaboteurLLMFaultTree(configuration)
+    case 'FixedScenario':
+        saboteur = SaboteurFixedScenario(configuration)
     case _:
         raise ValueError(f'Unknow saboteur type: {configuration.SABOTEUR_TYPE}')
 match configuration.SERVICE_TYPE:
@@ -182,6 +188,7 @@ python -m run_diagnostic_scenario \
 --interface cli
 """
 
+# 10 cubes
 """
 python -m run_diagnostic_scenario \
 --text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
@@ -193,10 +200,30 @@ python -m run_diagnostic_scenario \
 --kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
 --system 10CubesSystem \
 --ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
 --saboteur Human \
 --service Human \
 --assistant EvidenceKGOptimal \
 --interface cli \
 --cache
+"""
+
+# Fixed scenario input
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
+--LLM-assistant-model "gpt-5.2" \
+--NS-assistant-model "gpt-5.2" \
+--forced-scenario 0 \
+--log-level 10 \
+--rounds 5 \
+--kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
+--system 3CubesSystem \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+--saboteur FixedScenario \
+--service LLM \
+--assistant LLM \
+--interface cli 
 """

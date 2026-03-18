@@ -45,3 +45,28 @@ def to_one_line(s: str) -> str:
     Convert any string into a single line by removing newlines and extra spaces.
     """
     return " ".join(s.split())
+
+def to_capital_case(s: str) -> str:
+    if len(s) == 0:
+        return s
+    if len(s) == 1:
+        return s.upper()
+    return s[0].upper() + s[1:]
+
+def to_PascalCase(s: str) -> str:
+    l = [y for x in s.split(' ') for y in x.split('_')]
+    return "".join([to_capital_case(x) for x in l])
+
+def test_to_pascal_case():
+    in_out = [
+        ("3_cubes", "3Cubes"),
+        ("10_cubes", "10Cubes"),
+        ("A b cd", "ABCd"),
+        ("snake_case", "SnakeCase"),
+        ]
+    for inp, out in in_out:
+        assert out == to_PascalCase(inp)
+    print("All good from test_to_pascal_case")
+        
+if __name__ == "__main__":
+    test_to_pascal_case()

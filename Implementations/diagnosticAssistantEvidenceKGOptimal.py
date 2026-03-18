@@ -1,47 +1,31 @@
 import math
 
-from functools import partial, update_wrapper
 from logging import Logger, root
 from openai import OpenAI
 from pydantic import BaseModel, Field
-from typing import Any, Optional, Literal as LiteralType
+from typing import Optional, Literal as LiteralType
 from agents import Agent, function_tool 
 from rdflib import Graph, URIRef, Literal as LiteralRDF
 from rdflib.plugins.sparql.results.csvresults import *
 from rdflib.namespace import split_uri
-from pprint import pprint as pp
 
 
-from Utilities.formatting import terminal_uri_parts_gpt, to_one_line
 from configuration import Configuration
-from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticPlan, Observation, empty_sys_descr, diagnosticActionTypes
-
+from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticPlan, Observation, diagnosticActionTypes
+from Utilities.formatting import terminal_uri_parts_gpt, to_one_line
 from Utilities.utils import get_key, get_set
 from Utilities.caching import possibly_cached_runner_run
 from Utilities.assorted_prompts import PROMPTS
 from Utilities.topology import minimum_open_dense_set_gpt_thesis as minimal_dense_set
 from Utilities.retrieving_gpt import retrieve_top_chunks
 from Utilities.OWL_reasoning import expand_with_hermit
-from Utilities.asyncio_utils import async_friendly_input
-
-
-
-
 
 
 
 class HeuristicTestingProcedure(DiagnosticPlan):
-    
+    """Represents a greedy testic procedure based on an information heuristic: given a matrix of test/problems (stored as a map test->problems -- test2problem), can suggest the next action and update itself based on the action outcome"""
     test2problem: dict[DiagnosticAction, list[object]]
     
-    # outcomeSimplifier = Agent(
-    #     name = "outcomeSimplifier", 
-    #     instructions = "You will receive in input a diagnostic action outcome. A diagnostic action is a verb-object couple, accompanied by an optional description. Its outcome is a free-text description written by a field service engineer that has executed the action on a real physiscal system. ", 
-    #     tools = [function_tool(retrieve_component_context_tool)],
-    #     output_type = AnomalousNominalExtractorOutput)
-    
-    # output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input = PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom = str(symptom), components = "\n    ".join(str(component) for component in all_components)), cached=configuration.USE_CACHE)
-        
     def __bool__(self):
         return len(self.test2problem.keys()) > 0 
     def __len__(self):
@@ -81,17 +65,47 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             test2gain = [(action,self.get_information_gain(action), -action.get_cost()) for action in self.test2problem.keys()]
             test2gain.sort(key=lambda x:(x[1], x[2]), reverse=True) #orders by increasing gain and *decreasing* cost. TODO This is O(nlog(n)) and only used for logging. Could be imporved to O(n) 
             logger.debug(f"Sorted actions by gain: {test2gain}")
-            return test2gain[0][0]
+            old_action = test2gain[0][0]
+            next_action = old_action.model_copy( # nedded because I froze the model in its definition
+                                        update={
+                                            "description": old_action.description
+                                            + "\n\n"
+                                            + (
+                                                "This action is to be executed with the goal of individuating the "
+                                                f"problem(s) {terminal_uri_parts_gpt(self.test2problem[old_action])}. "
+                                                "While you execute it, please keep a watchful eye for some anomalous "
+                                                "behavior that suggests the presence of the aforementioned problems. "
+                                                "If you do find some such suggestions, then write the word 'anomalous' "
+                                                "as outcome, 'nominal' otherwise. Do not write anything else.\n> "
+                                            )
+                                        }
+                                    )
+            # since I modified the frozen action, I also have to modified the key in the dictionary, otherwise they will not match
+            self.test2problem[next_action] = self.test2problem.pop(old_action) 
+            return next_action
         else:
             return None
     
     async def update_test_problem_matrix(self, last_action_outcome: DiagnosticActionResult, logger: Logger) -> None:
         """It will reduce the size of the test2problem dictionary depening on the outcome of the last executed action"""
         async def get_simplified_outcome(free_text_outcome: str) -> LiteralType["anomalous", "nominal"]:
-            out = await async_friendly_input(f"The action you've executed was {last_action_outcome.action.get_name()} and was aimed to individuate the problem(s) {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])}. Did you find in your testing some anomalous behavior that suggests the presence of the aforementioned problems? Write 'anomalous' if so, 'nominal' otherwise\n> ")
-            while out not in ["anomalous", "nominal"]:
-                out = await async_friendly_input(f"Please, reply with either 'anomalous' or 'nominal'\n> ")
-            return out
+            ## this old design works but requires human input every time and cannot be automatized. Thus, I inserted (mutata mutatis) the below text into the suggested action. 'anomalous' or 'nominal' should then always be already present in the outcome text. 
+            ## for that to be true, the KGOptimal assistant will modify the description of the actions that are supplied to the service agent
+            # out = await async_friendly_input(f"The action you've executed was {last_action_outcome.action.get_name()} and was aimed to individuate the problem(s) {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])}. Did you find in your testing some anomalous behavior that suggests the presence of the aforementioned problems? Write 'anomalous' if so, 'nominal' otherwise\n> ")
+            # while out not in ["anomalous", "nominal"]:
+            #     out = await async_friendly_input(f"Please, reply with either 'anomalous' or 'nominal'\n> ")
+            # return out
+            free_text_outcome = free_text_outcome.lower()
+            anomaly_encountered = 'anomalous' in free_text_outcome
+            no_anomaly_encountered = 'nominal' in free_text_outcome
+            if anomaly_encountered and no_anomaly_encountered:
+                raise ValueError(f"The action outcome {free_text_outcome} contains both the 'anomalous' and the 'nominal' words. It should contain only one of these!")
+            if not anomaly_encountered and not no_anomaly_encountered:
+                raise ValueError(f"The action outcome {free_text_outcome} contains neither the 'anomalous' nor the 'nominal' words. It should exactly one of these!")
+            if 'anomalous' in free_text_outcome:
+                return 'anomalous'
+            if 'nominal' in free_text_outcome:
+                return 'nominal'
                 
         if not last_action_outcome.simplified_outcome or last_action_outcome.simplified_outcome == "":
             simple_outcome = await get_simplified_outcome(last_action_outcome.outcome)
@@ -116,6 +130,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                 raise ValueError(f"Unrecognized value of last_action_outcome.simplified_outcome. Value is {simple_outcome}")
             
 class AssistantStateKGO(AssistantState):
+    """Helper class to keep track of the KGOptimal assistant state"""
     current_pieces_of_evidence: list[set] = Field(default_factory=list)
     current_candidates: set = Field(default_factory=set)
     current_explicit_plan: Optional[HeuristicTestingProcedure] = None
@@ -123,7 +138,7 @@ class AssistantStateKGO(AssistantState):
 
 class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
     """
-    TODO
+    Diagnostic assistant based on greedy information gain heuristic.
     """
 
     def __init__(self, description, configuration):
@@ -132,6 +147,10 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             general_system_description = description,
             )
 
+    @property
+    def description(self) -> str:
+        return super().description + "_" + self.configuration.NS_ASSISTANT_MODEL
+    
     async def setup(self, observations: list[Observation]) -> None:
         if not self.configuration.ONTOLOGY_PATH: raise ValueError("ONTOLOGY PATH is None, was it an input argument?")
         pieces_of_evidence = await get_pieces_of_evidence_from_many_symptoms(
@@ -155,9 +174,10 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
 
     
     async def suggest_action(self) -> Optional[DiagnosticAction]:
+        """Will call the current diagnostic plan get_next_action method. If that is unsuccessful it will update the current_pieces_of_evidence by removing the current candidates (since they are considered a dead path) and try to generate a new testing procedure. If that is also unsuccessful, it will fail."""
         self.logger.debug(f"Current explicit plan is {self.state.current_explicit_plan}")
         
-        if next_action := self.state.current_explicit_plan.get_next_action(self.logger):
+        if self.state.current_explicit_plan and (next_action := self.state.current_explicit_plan.get_next_action(self.logger)):
             self.logger.info(f"Got next action from current plan: {next_action.get_name()}")
             return next_action
         else: # plan is currently exhausted, must try instantiating a new plan
@@ -176,34 +196,6 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                 return None
             return await self.suggest_action() # Will never return None at this point since explicit plan contains something...
             
-    #     # Incorporate last outcome if provided
-    #     if last_outcome is not None:
-    #         self._state.outcomes.append(last_outcome)
-    #         if self._state.plan is not None:
-    #             self._update_plan_after_outcome(last_outcome)
-
-    #     plan = self._state.plan
-    #     if not plan or plan.status != PlanStatus.ONGOING:
-    #         return None
-
-    #     if plan.current_index >= len(plan.actions):
-    #         plan.status = PlanStatus.EXHAUSTED
-    #         return None
-
-    #     return plan.actions[plan.current_index]
-
-    # def finish_session(self, root_cause: Optional[RootCauseDescription]) -> None:
-    #     self._state.user_finished = True
-    #     if root_cause:
-    #         self._state.user_confirmed_root_cause = RootCauseHypothesis(
-    #             component=root_cause.component,
-    #             failure_mode=root_cause.failure_mode,
-    #             confidence=1.0,
-    #             proposed_by="user",
-    #         )
-
-    # # ---- internal planning logic specific to this concrete assistant ----
-
     def _create_testing_procedure(self) -> HeuristicTestingProcedure:
         if len(self.state.current_candidates) == 0:
             self.logger.info("Cannot generate a new HeuristicTestingProcedure: candidate list is empty")
@@ -236,49 +228,9 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         self.logger.debug(f"Returning test2problem = {test2problem}")
         return HeuristicTestingProcedure(test2problem=test2problem)
 
-    # def _update_plan_after_outcome(self, outcome: DiagnosticActionResult) -> None:
-    #     plan = self._state.plan
-    #     if not plan or plan.status != PlanStatus.ONGOING:
-    #         return
-
-    #     # Advance index if expected action matches outcome.action
-    #     if (
-    #         plan.current_index < len(plan.actions)
-    #         and plan.actions[plan.current_index] == outcome.action
-    #     ):
-    #         plan.current_index += 1
-
-    #     # Example: no complex re-planning here, but you could adapt
-    #     if plan.current_index >= len(plan.actions):
-    #         plan.status = PlanStatus.EXHAUSTED
-            
-            
-    # qual_ev = []
-    # while True:
-    #     pieces_of_evidence = get_pieces_of_evidence_from_many_symptoms(
-    #         ontology_path, 
-    #         System, 
-    #         descriptions=descriptions)
-    #     new_qual_ev=get_qualitative_pieces_of_evidence_from_quantitative(pieces_of_evidence)
-    #     print(f"{'qual evidence pieces from this turn':*^120}")
-    #     pp(new_qual_ev)
-    #     qual_ev += new_qual_ev
-    #     print(f"{'total evidence pieces from all turns':*^120}")
-    #     pp(qual_ev)
-    #     print(f"{'minimal dense set from evidence pieces':*^120}")
-    #     pp(minimal_belief:=minimal_dense_set(qual_ev)) #belief according to the logix aybu''ke O''zgu''n (Baltag A. Bezhanishvili, Smets, S.) (for computation)/ Evidence logic pacuit eric, johan van benden older
-    #     print('get minimal')
-    #     print(f"Analyze any/some/all of the above components and report again your observations")
-            
-            
-            
-            
-
-
-
 
 #################################################
-#### BLOCK FOR QUERYING ONTOLOGY
+#### CODE BLOCK FOR QUERYING ONTOLOGY
 #################################################
 # ZORRO = Namespace("http://www.example.org/zorro/")
 
@@ -413,22 +365,8 @@ def retrieve_component_context(component_description: str, logger: Logger, clien
         for c in top_chunks
     )
     logger.info(f"Retrieved context: {to_one_line(context[:100])}...")
-    # logger.debug(f"Retrieved context (complete): {context}")
     return context
     
-# retrieve_component_context("Switch", 
-#                            logger=root, 
-#                            client=OpenAI(), 
-#                            folder_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes",
-#                            chunk_overlap=2,
-#                            top_k=4,
-#                            chunk_size=20,
-#                            cache_path="embeddings_cache.pkl",
-#                            embed_model="text-embedding-3-small",
-#                            tokenizer_model="cl100k_base",
-#                            )
-# quit()
-
 async def get_components_behaving_anomalously_nominally_from_one_symptom(ontology_path: str, schema_path: str, system: URIRef, symptom: str, configuration: Configuration, logger: Logger) -> tuple[list[URIRef], list[URIRef]]:
     if not isinstance(symptom, (str, Observation)):
         raise ValueError(f"Input a symptom of type {type(symptom)} instead of str. Raw value: {symptom}")
@@ -645,9 +583,6 @@ def materialize_cost(input_file, import_file, output_file=None):
 
     print(f"Saved to: {output_file}")
 
-    
-# materialize_cost("/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl", "/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/Structured_knowledge_sources/zorro-ontology-tbox.ttl");quit("quitting...")
-    
 def get_finest_problems_tests_from_components(ontology_path: str, schema_path: str, subjects: set[URIRef], expand: bool = False) -> list[tuple[URIRef, URIRef, LiteralRDF]]:
     """
     Given a set of component URIs, return the associated problem-test matrix
@@ -681,34 +616,6 @@ ORDER BY ?test ?problem ?cost
     )
 
     return [(row.test, row.problem, row.cost) for row in results]
-
-# import rdflib
-# out = get_finest_problems_tests_from_components(
-#     ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
-#     schema_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl",
-#     subjects={rdflib.term.URIRef('http://www.example.org/zorro/Battery')},
-#     expand=False,
-# )
-# out = get_diagnostic_action_properties(
-#     ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
-#     subject=rdflib.term.URIRef('http://www.example.org/zorro/InspectBattery'),
-# )
-# def from_URIRef_to_diagnostic_action(uri: URIRef) -> DiagnosticAction:
-#     type, target, description = get_diagnostic_action_properties(
-#         ontology_path="/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl",
-#         subject=uri
-#     )
-#     return DiagnosticAction(type=type, target=target, description=description)
-# test2problem = {}
-# for row in out:
-#     test = from_URIRef_to_diagnostic_action(row[0])
-#     if test not in test2problem:
-#         test2problem.update({test: []})
-#     test2problem[test].append(problem:=row[1])
-# print("*"*200)
-# print(out)
-# print("*"*200)
-# quit()
 
 def get_finest_problems_tests_gain_from_components(ontology_path: str, schema_path: str, subjects: set[URIRef], expand: bool = False) -> list[tuple[URIRef]]:
     """
@@ -759,7 +666,6 @@ ORDER BY ?test ?problem ?cost
     def get_information_gain(totalProblemsCount: int, associatedProblemsCount: int, cost: int):
         return math.log2(totalProblemsCount/(totalProblemsCount-associatedProblemsCount))/cost
     return [(row.problem, row.test, row.cost, row.problemCount, totalProblemsCount, get_information_gain(totalProblemsCount, row.problemCount, row.cost)) for row in results]
-# pp(get_finest_problems_tests_from_components("/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl", subjects = {ZORRO["Battery"], ZORRO["Switch"]}, expand=False));quit("quitting...")
 
 def get_information_gain_of_diagnostic_action(ontology_path: str, schema_path: str, subjects: set[URIRef], expand: bool = False) -> list[tuple[URIRef,URIRef,URIRef]]:
     """
@@ -791,109 +697,6 @@ def get_information_gain_of_diagnostic_action(ontology_path: str, schema_path: s
     )
 
     return [(row.problem, row.test, row.cost) for row in results]
-# pp(get_finest_problems_tests_from_components("/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl", subjects = {ZORRO["Battery"], ZORRO["Switch"]}, expand=False));quit("quitting...")
 
 if __name__ == "__main__":
-    # # onotology_path = "/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/zorro2-copy-modified+manual-instances.ttl"
-    # ontology_path = "/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/zorro2-copy-modified+manual-instances-expanded.ttl"
-    
-    # InvertedCablesIndicator = URIRef(base=ZORRO, value="InvertedCablesIndicator") #http://www.example.org/zorro/InvertedCablesIndicator
-    # g=Graph().parse(ontology_path)
-    # q="DESCRIBE :InvertedCablesIndicator"
-    # g.query(q).serialize("tempfile.tmp")
-    # visualize(Graph().parse("tempfile.tmp", format="xml"))
-    # quit()
-    # print("Input: ", InvertedCablesIndicator)
-    # results = get_putative_failed_components_from_component_behaving_anomalously(ontology_path, InvertedCablesIndicator, expand = False)
-    # print("Output: ", results)
-    # print("Input: ", str("The control module led is on"))
-    # # InvertedCablesIndicator = URIRef(base=ZORRO, value="System") #http://www.example.org/zorro/System
-    # # results = get_components_behaving_anomalously_nominally_from_one_symptom(ontology_path, InvertedCablesIndicator, symptom=str("The control module led is on"))
-    # # print("Output: ", results)
-    # InvertedCablesIndicator = URIRef(base=ZORRO, value="InvertedCablesIndicator") 
-    # Battery = URIRef(base=ZORRO, value="Battery") 
-    # System = URIRef(base=ZORRO, value="System") 
-    # PowerSupplyModule = URIRef(base=ZORRO, value="PowerSupplyModule") 
-    # ControlModule = URIRef(base=ZORRO, value="ControlModule") 
-    # LoadModule = URIRef(base=ZORRO, value="LoadModule") 
-    
-    # print(get_putative_failed_components_from_component_behaving_anomalously(ontology_path, InvertedCablesIndicator))
-    # quit()
-    # o=get_putative_failed_components_from_component_behaving_anomalously(ontology_path=ontology_path, subject=InvertedCablesIndicator)
-    # print(o) 
-    # quit()
-    # print("Input: ", ontology_path, System, [str("The led on the control module is on")])
-    
-    # descriptions=[
-    #         "The led on the control module is on",
-    #         "The battery is working properly"
-    #         ]
-    # pieces_of_evidence = get_pieces_of_evidence_from_many_symptoms(
-    #     ontology_path, 
-    #     System, 
-    #     descriptions=descriptions)
-    # print("Output: ", results)
-    # --- SD + minimal dense (qualitative) ---
-    # print("\nSD belief model (qualitative reasoning):")
-    # possible_candidates = {str(x) for x in get_component_closure(ontology_path, System)}
-    # # next lines homogenizes granularity
-    # possible_candidates = possible_candidates.difference({str(x) for x in {System, LoadModule, ControlModule, PowerSupplyModule}})
-    # result_sd = sd_min_belief_model(possible_candidates, results)
-    # print(111111,len(possible_candidates))
-    # for x in possible_candidates:
-    #     print(x)
-    # print(22222, evidences:={
-    #     get_key({str(Battery), str(InvertedCablesIndicator)}):0.5,
-    #     get_key(possible_candidates.difference({str(Battery)})):0.5
-    #     })
-    # # result_sd = sd_min_belief_model(possible_candidates, evidences)
-
-    # for k in result_sd:
-    #     print(f"belief for {k}")
-
-    # print("not belief for other propositions")
-        
-        
-        
-        
-    # ontology_path = "/Users/francescocompagno/Desktop/Work_Units/UvA/Experiments/Naive_failure_simulation/zorro2-copy-modified+manual-instances-expanded.ttl"
-    # System = URIRef(base=ZORRO, value="System") 
-    # qual_ev = []
-    # print("Game start...")
-    # while True:
-    #     inp = ""
-    #     descriptions=[]
-    #     while inp != "stop":
-    #         inp = input("Write observation about system (write 'stop' to end this phase; write 'end' to end game): ")
-    #         match inp: #The switched cables indicator is turned on #The battery appears to be working fine
-    #             case "end":
-    #                 quit('Game terminated, quitting... ')
-    #                 break
-    #             case "":
-    #                 print("Empty input, try again...")
-    #                 continue
-    #             case "stop":
-    #                 print('Stopping phase... ')
-    #                 continue
-    #         descriptions.append(inp)
-    #     print(1212121212)
-    #     pieces_of_evidence = get_pieces_of_evidence_from_many_symptoms(
-    #         ontology_path, 
-    #         System, 
-    #         descriptions=descriptions)
-    #     new_qual_ev=get_qualitative_pieces_of_evidence_from_quantitative(pieces_of_evidence)
-    #     print(f"{'qual evidence pieces from this turn':*^120}")
-    #     pp(new_qual_ev)
-    #     qual_ev += new_qual_ev
-    #     print(f"{'total evidence pieces from all turns':*^120}")
-    #     pp(qual_ev)
-    #     print(f"{'minimal dense set from evidence pieces':*^120}")
-    #     pp(minimal_belief:=minimal_dense_set(qual_ev)) #belief according to the logix aybu''ke O''zgu''n (Baltag A. Bezhanishvili, Smets, S.) (for computation)/ Evidence logic pacuit eric, johan van benden older
-    #     print('get minimal')
-    #     print(f"Analyze any/some/all of the above components and report again your observations")
     pass
-        
-
-        
-    
-# clear; python -m run_dignostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes"

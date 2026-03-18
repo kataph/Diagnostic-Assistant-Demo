@@ -38,6 +38,8 @@ class Configuration:
     LLM_ASSISTANT_MODEL: str = "gpt-4.1"
     
     NS_ASSISTANT_MODEL: str = "gpt-4.1"
+    
+    FORCED_SCENARIO_ID: int = 0
 
     USE_CACHE: bool = False
     AGENTS_FORCED_TO_NO_CACHE: list[str] = field(default_factory=list)
