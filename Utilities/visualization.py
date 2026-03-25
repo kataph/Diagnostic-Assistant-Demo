@@ -3,6 +3,7 @@ import pydotplus
 from rdflib.tools.rdf2dot import rdf2dot
 from PIL import Image
 
+
 def visualize(g):
     stream = io.StringIO()
     rdf2dot(g, stream)
@@ -12,4 +13,3 @@ def visualize(g):
         f.write(png)
     img = Image.open("graph.png")
     img.show()
-

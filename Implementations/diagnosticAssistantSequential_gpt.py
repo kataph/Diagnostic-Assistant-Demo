@@ -8,17 +8,20 @@ from typing import Optional
 from pydantic import BaseModel, Field
 from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, Observation, RootCauseDescription, RootCauseHypothesis
 
+
 class PlanStatus(str, Enum):
     ONGOING = "ongoing"
     EXHAUSTED = "exhausted"
     FAILED = "failed"
+
 
 class ActionVerb(str, Enum):
     OBSERVE = "observe"
     TEST = "test"
     ADJUST = "adjust"
     REPLACE = "replace"
-    
+
+
 class SequentialDiagnosticPlan(BaseModel):
     actions: list[DiagnosticAction]
     current_index: int = 0
@@ -49,7 +52,8 @@ class DiagnosticAssistantSequential_gpt(DiagnosticAssistant):
 
     def suggest_action(self) -> Optional[DiagnosticAction]:
         # Incorporate last outcome if provided
-        last_outcome = self.state.diagnostic_scenario_memory[0] if len(self.state.diagnostic_scenario_memory) > 0 else None
+        last_outcome = self.state.diagnostic_scenario_memory[0] if len(
+            self.state.diagnostic_scenario_memory) > 0 else None
         if last_outcome is not None:
             self._state.outcomes.append(last_outcome)
             if self._state.plan is not None:
@@ -117,4 +121,3 @@ class DiagnosticAssistantSequential_gpt(DiagnosticAssistant):
         # Example: no complex re-planning here, but you could adapt
         if plan.current_index >= len(plan.actions):
             plan.status = PlanStatus.EXHAUSTED
-

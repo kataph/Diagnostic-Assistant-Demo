@@ -25,6 +25,7 @@ TOP_K = 2
 # UTILITIES
 # =====================
 
+
 def cosine_similarity(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
@@ -56,12 +57,13 @@ class Chunk(TypedDict):
     text: str
     source: str
     hash: str
-    
+
+
 def load_and_chunk_documents(folder_path, chunk_size, chunk_overlap, tokenizer_model) -> list[Chunk]:
     chunks = []
 
     tokenizer = tiktoken.get_encoding(tokenizer_model)
-    
+
     for filename in os.listdir(folder_path):
         if not filename.endswith(".txt"):
             continue
@@ -112,7 +114,8 @@ def embed_texts(texts, client: OpenAI, embed_model: str):
 
 def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model, cache_path):
     print("Loading documents...")
-    chunks = load_and_chunk_documents(folder_path, chunk_size, chunk_overlap, tokenizer_model)
+    chunks = load_and_chunk_documents(
+        folder_path, chunk_size, chunk_overlap, tokenizer_model)
 
     cache = load_cache(cache_path)
 
@@ -138,15 +141,17 @@ def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_ove
     chunk_embeddings = np.array([cache[c["hash"]] for c in chunks])
 
     print(f"Index ready ({len(chunks)} chunks).")
-    
+
     return chunks, chunk_embeddings
 
 # =====================
 # RETRIEVAL
 # =====================
 
-def retrieve_top_chunks(query: str, client: OpenAI, top_k: int = TOP_K, folder_path = FOLDER_PATH, chunk_size = CHUNK_SIZE, chunk_overlap = CHUNK_OVERLAP, tokenizer_model = TOKENIZER_MODEL, embed_model = EMBED_MODEL, cache_path = CACHE_PATH) -> list[Chunk]:
-    chunks, chunk_embeddings = get_chunks_and_embeddings(client, folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model, cache_path)
+
+def retrieve_top_chunks(query: str, client: OpenAI, top_k: int = TOP_K, folder_path=FOLDER_PATH, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, tokenizer_model=TOKENIZER_MODEL, embed_model=EMBED_MODEL, cache_path=CACHE_PATH) -> list[Chunk]:
+    chunks, chunk_embeddings = get_chunks_and_embeddings(
+        client, folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model, cache_path)
     query_embedding = embed_texts([query], client, embed_model)[0]
 
     scores = [

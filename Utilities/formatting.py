@@ -2,11 +2,13 @@ from rdflib import URIRef
 from rdflib.namespace import split_uri
 from collections.abc import Iterable
 
-def format_list(l: list)->str:
+
+def format_list(l: list) -> str:
     if not l:
         return ""
     return "\n".join([str(x) for x in l])+"\n"
-    
+
+
 def format_conversation_history(conversation_history) -> str:
     out = []
     for msg in conversation_history:
@@ -17,12 +19,14 @@ def format_conversation_history(conversation_history) -> str:
                 out.append(item["file_id"])
     return "\n".join(out)
 
+
 def split_uri_str(uri: str) -> str:
     """Return the terminal part of a URI string."""
     if '#' in uri:
         return uri.rsplit('#', 1)[-1]
     else:
         return uri.rstrip('/').rsplit('/', 1)[-1]
+
 
 def terminal_uri_parts_gpt(obj):
     """
@@ -39,12 +43,13 @@ def terminal_uri_parts_gpt(obj):
     else:
         return obj
 
-    
+
 def to_one_line(s: str) -> str:
     """
     Convert any string into a single line by removing newlines and extra spaces.
     """
     return " ".join(s.split())
+
 
 def to_capital_case(s: str) -> str:
     if len(s) == 0:
@@ -53,9 +58,11 @@ def to_capital_case(s: str) -> str:
         return s.upper()
     return s[0].upper() + s[1:]
 
+
 def to_PascalCase(s: str) -> str:
     l = [y for x in s.split(' ') for y in x.split('_')]
     return "".join([to_capital_case(x) for x in l])
+
 
 def test_to_pascal_case():
     in_out = [
@@ -63,10 +70,11 @@ def test_to_pascal_case():
         ("10_cubes", "10Cubes"),
         ("A b cd", "ABCd"),
         ("snake_case", "SnakeCase"),
-        ]
+    ]
     for inp, out in in_out:
         assert out == to_PascalCase(inp)
     print("All good from test_to_pascal_case")
-        
+
+
 if __name__ == "__main__":
     test_to_pascal_case()

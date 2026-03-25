@@ -1,7 +1,8 @@
 import sys
 import ast
 from functools import reduce
-from itertools import chain, combinations 
+from itertools import chain, combinations
+
 
 def get_key(s):
     """
@@ -9,7 +10,7 @@ def get_key(s):
 
     Args:
         s (set): Set.
-        
+
     Returns:
         k (string): Unique string identifier for s.
     """
@@ -24,12 +25,13 @@ def get_set(k):
 
     Args:
         k (string): Unique string identifier.
-        
+
     Returns:
         s (set): Corresponding set.
     """
     elements = ast.literal_eval(k)
     return set(elements)
+
 
 # Example usage
 s = {'b', 'a'}

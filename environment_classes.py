@@ -13,11 +13,12 @@ from time import perf_counter
 
 
 class SystemDescription(BaseModel):
-  text_input: str
-  file_id: str | None = None
-  
-empty_sys_descr = SystemDescription(text_input="", file_id="")  
-            
+    text_input: str
+    file_id: str | None = None
+
+
+empty_sys_descr = SystemDescription(text_input="", file_id="")
+
 # class VirtualSystemDescription(SystemDescription):
 #   root_cause_description: RootCauseDescription
 # class PhysiscalSystemDescription(SystemDescription):
@@ -25,44 +26,58 @@ empty_sys_descr = SystemDescription(text_input="", file_id="")
 
 
 class SymptomDescription(RootModel[str]):
-  def __str__(self):
-     return f"'{self.root}'"
-  def simple_string(self) -> str:
-     return self.root
+    def __str__(self):
+        return f"'{self.root}'"
+
+    def simple_string(self) -> str:
+        return self.root
+
 
 class SymptomDescriptions(RootModel[list[SymptomDescription]]):
-  def __iter__(self) -> Iterator[SymptomDescription]:
+    def __iter__(self) -> Iterator[SymptomDescription]:
         return iter(self.root)
-  def __str__(self):
-     return "\n".join([str(x) for x in self.root])
-  def __len__(self):
-      return len(self.root)
-  def one_line_repr(self) -> str:
-      return str(self.root)
-  def append(self, item: SymptomDescription) -> None:
-      self.root.append(item)
+
+    def __str__(self):
+        return "\n".join([str(x) for x in self.root])
+
+    def __len__(self):
+        return len(self.root)
+
+    def one_line_repr(self) -> str:
+        return str(self.root)
+
+    def append(self, item: SymptomDescription) -> None:
+        self.root.append(item)
+
 
 class ObservationDescriptions(RootModel[list[SymptomDescription]]):
-  def __iter__(self) -> Iterator[SymptomDescription]:
+    def __iter__(self) -> Iterator[SymptomDescription]:
         return iter(self.root)
-  def __str__(self):
-     return "\n".join([str(x) for x in self.root])
-  def append(self, item: SymptomDescription) -> None:
-      self.root.append(item)
-   
+
+    def __str__(self):
+        return "\n".join([str(x) for x in self.root])
+
+    def append(self, item: SymptomDescription) -> None:
+        self.root.append(item)
+
+
 class SingleFaultOutput(BaseModel):
-  root_cause_description: str
-  symptoms_descriptions: SymptomDescriptions
+    root_cause_description: str
+    symptoms_descriptions: SymptomDescriptions
+
 
 class TesterOutput(BaseModel):
-  system_works_again: bool
-  diagnostic_actions_results: str
+    system_works_again: bool
+    diagnostic_actions_results: str
+
 
 class TextDiagnosticActionResult(BaseModel):
-  action_name: str
-  action_result_description: str
-  def __str__(self):
-    return f"{{action_name: {self.action_name}, action_result_description: {self.action_result_description}}}"
+    action_name: str
+    action_result_description: str
+
+    def __str__(self):
+        return f"{{action_name: {self.action_name}, action_result_description: {self.action_result_description}}}"
+
 
 ACTION_COST_MAP = {
     'Replace': 10,
@@ -73,84 +88,113 @@ ACTION_COST_MAP = {
 
 diagnosticActionTypes = Literal['Replace', 'Adjust', 'Observe', 'Test']
 
+
 class DiagnosticAction(BaseModel):
     model_config = ConfigDict(frozen=True)
-    
+
     type: diagnosticActionTypes
     target: str
     description: Optional[str] = None
+
     def get_name(self):
         return f"{self.type} -> {self.target}"
+
     def __str__(self):
         return f"\nname: {self.get_name()},\ndescription: {self.description}"
+
     def __repr__(self):
         return self.__str__()
+
     def get_full_repr(self):
         return f"\ntype: {self.type},\ntarget: {self.target},\ndescription: {self.description}"
+
     def get_cost(self) -> int:
         return ACTION_COST_MAP[self.type]
 
-class DiagnosticActionResult(BaseModel):
-  action: DiagnosticAction
-  outcome: str
-  simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
-  
-  def __str__(self):
-    return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
 
-class TesterCostrainedOutputText(BaseModel):
-  system_works_again: bool
-  diagnostic_actions_results: list[TextDiagnosticActionResult]
-  def __str__(self):
-     return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
-class TesterCostrainedOutput(BaseModel):
-  system_works_again: bool
-  diagnostic_actions_results: list[DiagnosticActionResult]
-  def __str__(self):
-     return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
+class DiagnosticActionResult(BaseModel):
+    action: DiagnosticAction
+    outcome: str
+    simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
+
+    def __str__(self):
+        return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
+
+
+class TesterConstrainedOutputText(BaseModel):
+    system_works_again: bool
+    diagnostic_actions_results: list[TextDiagnosticActionResult]
+
+    def __str__(self):
+        return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
+
+
+class TesterConstrainedOutput(BaseModel):
+    system_works_again: bool
+    diagnostic_actions_results: list[DiagnosticActionResult]
+
+    def __str__(self):
+        return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
+
+
 class TextDiagnosticAction(BaseModel):
     action_name: str
     action_description: str
+
     def __str__(self):
         return f"\naction_name: {self.action_name},\naction_description: {self.action_description}"
+
+
 class TextDiagnosticActionsList(BaseModel):
-   diagnostic_actions: list[TextDiagnosticAction]
-   def __str__(self):
+    diagnostic_actions: list[TextDiagnosticAction]
+
+    def __str__(self):
         return "\n".join([str(x) for x in self.diagnostic_actions])
 
+
 class DiagnosticActionsList(BaseModel):
-   diagnostic_actions: list[DiagnosticAction]
-   def __str__(self):
+    diagnostic_actions: list[DiagnosticAction]
+
+    def __str__(self):
         return "\n".join([str(x) for x in self.diagnostic_actions])
+
 
 class Observation(BaseModel):
     description: str
     confidence: Optional[str] = None
+
     def __str__(self):
         return f"'{self.description}'"
+
     def __repr__(self):
         return self.__str__()
-    
+
+
 class SimpleDescription(RootModel[str]):
     def __str__(self):
         return f"'{self.root}'"
 
+
 class FaultDescription(RootModel[str]):
     def __str__(self):
-     return f"'{self.root}'"
-    
+        return f"'{self.root}'"
+
+
 class RootCauseDescription(BaseModel):
-    root_cause_description_proper : FaultDescription
+    root_cause_description_proper: FaultDescription
     symptoms_descriptions: Optional[SymptomDescriptions] = None
     notes: Optional[str] = None
+
     def __repr__(self):
         return (f"root cause:\n{self.root_cause_description_proper}" +
-                f"\nsymptoms:\n{self.symptoms_descriptions}" if self.symptoms_descriptions else "" +
-                f"\nnotes:\n{self.notes}" if self.notes else "")
+                (f"\nsymptoms:\n{self.symptoms_descriptions}" if self.symptoms_descriptions else "") +
+                (f"\nnotes:\n{self.notes}" if self.notes else ""))
+
     def one_liner_repr(self):
         return (f"root cause: {self.root_cause_description_proper} " +
                 (f"symptoms: '{self.symptoms_descriptions}' " if self.symptoms_descriptions else "") +
                 (f"notes: '{self.notes}'" if self.notes else ""))
+
     def __str__(self):
         return self.__repr__()
 
@@ -161,7 +205,9 @@ class RootCauseHypothesis(BaseModel):
     confidence: float = Field(ge=0, le=1)
     proposed_by: str = "assistant"
 
-### Human interface thorugh either CLI or voice
+# Human interface thorugh either CLI or voice
+
+
 class HumanIO(ABC):
     @abstractmethod
     async def prompt(self, text: str) -> None:
@@ -212,13 +258,13 @@ class VoiceHumanIO(HumanIO):
 
 
 class DiagnosticPlan(BaseModel):
-    model_config = ConfigDict(extra="allow") # Allows extra fields
-    
+    model_config = ConfigDict(extra="allow")  # Allows extra fields
+
     # actions: List[DiagnosticAction]
     # current_index: int = 0
     # status: PlanStatus = PlanStatus.ONGOING
     # hypotheses: List[RootCauseHypothesis] = Field(default_factory=list)
-    
+
     @abstractmethod
     def get_next_action(self) -> DiagnosticAction | None:
         ...
@@ -229,33 +275,36 @@ class AssistantState(BaseModel):
 
     general_system_description: SystemDescription = None
     initial_observations: List[Observation] = Field(default_factory=list)
-    diagnostic_scenario_memory: List[DiagnosticActionResult] = Field(default_factory=list)
+    diagnostic_scenario_memory: List[DiagnosticActionResult] = Field(
+        default_factory=list)
 
     user_finished: bool = False
     user_confirmed_root_cause: Optional[RootCauseDescription] = None
-    
+
     def __str__(self):
         return f"model_config: {self.model}"
 
 # All diagnostic-scenario-environment-roles classes receive a configuration and may log info about their behavior
+
+
 class ThingThatLogs(ABC):
-    
+
     def _setup_logger(self, configuration: Configuration) -> None:
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.logger.setLevel(configuration.LOG_LEVEL) # INFO is 20
-        
+        self.logger.setLevel(configuration.LOG_LEVEL)  # INFO is 20
+
         self.logger.addHandler(configuration.get_file_handler())
-    
+
     def __init__(self, configuration: Configuration):
         super().__init__()
         self.configuration = configuration
         self._setup_logger(self.configuration)
-        
+
     @property
     def description(self) -> str:
         """Self-declared description of an instance. It should contain the name plus eventual essential characteristics for logging"""
         return self.__class__.__name__
-    
+
 
 # =========
 # Abstract DiagnosticAssistant (black box)
@@ -273,14 +322,13 @@ class DiagnosticAssistant(ThingThatLogs):
       - read .state for logging / UI / analysis
     """
 
-        
     def __init__(self, description: SystemDescription, configuration: Configuration) -> None:
         """
         Initialize assistant internal state with general system informations.
         """
         super().__init__(configuration)
         self.state = AssistantState(general_system_description=description)
-        
+
     @abstractmethod
     async def setup(self, observations: List[Observation]) -> None:
         """
@@ -293,7 +341,7 @@ class DiagnosticAssistant(ThingThatLogs):
         Update the assistant state given the last outcome. 
         """
         self.state.diagnostic_scenario_memory.append(last_outcome)
-        
+
     @abstractmethod
     async def suggest_action(self) -> Optional[DiagnosticAction]:
         """
@@ -307,10 +355,11 @@ class DiagnosticAssistant(ThingThatLogs):
         self.user_finished = True
         if root_cause:
             self.state.user_confirmed_root_cause = root_cause
-            self.logger.info(f"Session ended by user decision. Recorded root cause is >>{self.state.user_confirmed_root_cause.one_liner_repr()}<<")
+            self.logger.info(
+                f"Session ended by user decision. Recorded root cause is >>{self.state.user_confirmed_root_cause.one_liner_repr()}<<")
         else:
-            self.logger.info(f"Session ended by user decision. Root cause not recorded")
-        
+            self.logger.info(
+                f"Session ended by user decision. Root cause not recorded")
 
 
 # =========
@@ -326,8 +375,7 @@ class Saboteur(ThingThatLogs):
 
 
 class ServiceAgent(ThingThatLogs):
-    
-    
+
     @abstractmethod
     async def collect_initial_observations(
         self,
@@ -337,10 +385,10 @@ class ServiceAgent(ThingThatLogs):
         ...
 
     @abstractmethod
-    async def execute_action(self, 
-                       system: SystemDescription,
-                       action: DiagnosticAction, 
-                       root_cause_description: Optional[RootCauseDescription]) -> DiagnosticActionResult:
+    async def execute_action(self,
+                             system: SystemDescription,
+                             action: DiagnosticAction,
+                             root_cause_description: Optional[RootCauseDescription]) -> DiagnosticActionResult:
         ...
 
     @abstractmethod
@@ -362,15 +410,17 @@ async def run_diagnostic_scenario(
     assistant: DiagnosticAssistant,
     scenario_logger: logging.Logger
 ) -> None:
-    scenario_logger.info(f"A diagnostic scenario has been started with a saboteur of type {saboteur.description}, a service agent of type {service_agent.description}, and an assistant of type {assistant.description}")
-    
+    scenario_logger.info(
+        f"A diagnostic scenario has been started with a saboteur of type {saboteur.description}, a service agent of type {service_agent.description}, and an assistant of type {assistant.description}")
+
     # 1) Sabotage phase
     sabotage_root = await saboteur.sabotage(system)
 
     # 2) Initial observations
     initial_obs = await service_agent.collect_initial_observations(system, sabotage_root)
     await assistant.setup(initial_obs)
-    scenario_logger.info(f"Diagnostic assistant has finished setup. Starting diagnostic loop...")
+    scenario_logger.info(
+        f"Diagnostic assistant has finished setup. Starting diagnostic loop...")
 
     # 3) Diagnostic loop
     last_outcome: Optional[DiagnosticActionResult] = None
@@ -386,7 +436,7 @@ async def run_diagnostic_scenario(
             last_outcome = await service_agent.execute_action(system, action, sabotage_root)
             end = perf_counter()
             suggested_actions_history.append(last_outcome)
-            time_vector.append(elapsed_time:=end-start)
+            time_vector.append(elapsed_time := end-start)
             await assistant.record_outcome(last_outcome)
 
         # Ask service agent if it wants to finish
@@ -402,17 +452,22 @@ async def run_diagnostic_scenario(
             break
 
     # 4) Summary
-    
-    if rc:=assistant.state.user_confirmed_root_cause:
-        scenario_logger.info(f"Service agent confirmed root cause: {rc.root_cause_description_proper}")
+
+    if rc := assistant.state.user_confirmed_root_cause:
+        scenario_logger.info(
+            f"Service agent confirmed root cause: {rc.root_cause_description_proper}")
     else:
-        scenario_logger.info("Service agent ended session without recording a root cause.")
+        scenario_logger.info(
+            "Service agent ended session without recording a root cause.")
     cost_vector = [x.action.get_cost() for x in suggested_actions_history]
     scenario_logger.info(f"Cost vector: {cost_vector}")
-    scenario_logger.info(f"Total cost: {sum(cost_vector)} --- Number of suggestions: {len(cost_vector)} ")
+    scenario_logger.info(
+        f"Total cost: {sum(cost_vector)} --- Number of suggestions: {len(cost_vector)} ")
     scenario_logger.info(f"Time vector: {time_vector}")
-    scenario_logger.info(f"Average time: {sum(time_vector)/len(time_vector) if time_vector else 0}")
-    scenario_logger.debug(f"Diagnostic memory: {assistant.state.diagnostic_scenario_memory} ")
+    scenario_logger.info(
+        f"Average time: {sum(time_vector)/len(time_vector) if time_vector else 0}")
+    scenario_logger.debug(
+        f"Diagnostic memory: {assistant.state.diagnostic_scenario_memory} ")
 
     # print("\nFull assistant state:")
     # print(assistant.state.model_dump(indent=2))
