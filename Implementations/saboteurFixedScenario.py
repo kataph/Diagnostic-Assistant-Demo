@@ -39,7 +39,7 @@ SCENARIOS = [
         symptoms_descriptions = SymptomDescriptions([
             SymptomDescription("The lamp does not turn on when the switch is operated"),
             SymptomDescription("The green led on top of the power supply module is off"),
-            SymptomDescription("The red led on top of the control module is off"),
+            SymptomDescription("The red led on top of the control module is on"),
         ])
     )),
     (4,"3_cubes", 
