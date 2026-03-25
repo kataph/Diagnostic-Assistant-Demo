@@ -8,7 +8,7 @@ class ServiceAgentHuman(ServiceAgent):
     def __init__(self, configuration):
         super().__init__(configuration)
         self.STOP_WORDS = ['stop', 'stop.', 'stop,']
-        self.AFFERMATIVE_WORDS = ['y', 'y.', 'yes', 'yes!', 'yes.']
+        self.AFFIRMATIVE_WORDS = ['y', 'y.', 'yes', 'yes!', 'yes.']
         match self.configuration.INTERFACE_MODE:
             case "cli":
                 self.io = CLIHumanIO()
@@ -62,13 +62,13 @@ class ServiceAgentHuman(ServiceAgent):
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
         answer = (await self.io.read_line("\nDo you consider the diagnosis done now? [y/else]\n> ")).strip().lower()
-        if answer not in self.AFFERMATIVE_WORDS:
+        if answer not in self.AFFIRMATIVE_WORDS:
             return (False, None)
         # Comment 3 lines above and uncomment line below for faster interaction
         # return (False, None)
 
         answer = (await self.io.read_line("\nDo you want to record the putative root cause? [y/else]\n> ")).strip().lower()
-        if answer not in self.AFFERMATIVE_WORDS:
+        if answer not in self.AFFIRMATIVE_WORDS:
             return (True, None)
 
         return (True, RootCauseDescription(

@@ -17,14 +17,6 @@ class SystemDescription(BaseModel):
     file_id: str | None = None
 
 
-empty_sys_descr = SystemDescription(text_input="", file_id="")
-
-# class VirtualSystemDescription(SystemDescription):
-#   root_cause_description: RootCauseDescription
-# class PhysiscalSystemDescription(SystemDescription):
-#     pass
-
-
 class SymptomDescription(RootModel[str]):
     def __str__(self):
         return f"'{self.root}'"
@@ -349,7 +341,7 @@ class DiagnosticAssistant(ThingThatLogs):
         """
         Called by the *service agent* when it decides diagnosis is done.
         """
-        self.user_finished = True
+        self.state.user_finished = True
         if root_cause:
             self.state.user_confirmed_root_cause = root_cause
             self.logger.info(

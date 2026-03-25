@@ -107,9 +107,9 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             if not anomaly_encountered and not no_anomaly_encountered:
                 raise ValueError(
                     f"The action outcome {free_text_outcome} contains neither the 'anomalous' nor the 'nominal' words. It should exactly one of these!")
-            if 'anomalous' in free_text_outcome:
+            if anomaly_encountered:
                 return 'anomalous'
-            if 'nominal' in free_text_outcome:
+            if no_anomaly_encountered:
                 return 'nominal'
 
         if not last_action_outcome.simplified_outcome or last_action_outcome.simplified_outcome == "":

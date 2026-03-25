@@ -120,7 +120,7 @@ def parse_time_from_log(log_path: Path):
     except ValueError as e:
         raise ValueError(f"Failed to parse time vector in {log_path}: {e}")
 
-    return sum(values)/len(values)
+    return sum(values)/len(values) if len(values) > 0 else 0
 
 
 def compute_stats_from_logs(log_files):
@@ -165,8 +165,11 @@ def append_results(out_path: Path, mean_cost: float, std_cost: float, mean_time:
 
 def main_args(num_runs, base_dir, forced_scenario, assistant, rounds, skip_runs: bool, log_dir, out_file, service="LLM"):
 
-    _, system, _ = next(
-        scenario for scenario in SCENARIOS if scenario[0] == forced_scenario)
+
+    target_scenarios = [scenario for scenario in SCENARIOS if scenario[0] == forced_scenario]
+    if len(target_scenarios) != 1:
+        raise ValueError(f"The scenarios corresponding to id {forced_scenario} are {len(target_scenarios)}. It should be that it is exactly 1!")
+    _, system, _ = target_scenarios[0]
 
     if not skip_runs:
         run_scenario_multiple_times(

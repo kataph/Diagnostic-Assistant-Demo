@@ -183,7 +183,7 @@ class MultiLayerBeliefModel:
                     denominator  # Compute delta_j(j)
 
         testSum = sum(value for value in self.delta_J.values())
-        print("Sum values: " + str(testSum))
+        # print("Sum values: " + str(testSum))
 
         return self.delta_J
 

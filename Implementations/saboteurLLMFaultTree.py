@@ -170,7 +170,7 @@ faultTreeGenerator = Agent(
 )
 
 symptomGenerator = Agent(
-    name="SymtomGenerator",
+    name="SymptomGenerator",
     instructions="""You are an expert reliability engineer. You will receive in input 
   (i) a description of an engineered system, together with 
   (ii) a specific fault (root cause) that the system is suffering from
@@ -188,7 +188,7 @@ class SymptomGeneratorOutput(BaseModel):
 
 
 symptomGenerator_v2 = Agent(
-    name="SymtomGenerator",
+    name="SymptomGenerator",
     instructions="""You are an expert reliability engineer. You will receive in input 
   (i) a description of an engineered system, together with 
   (ii) a specific fault (root cause) that the system is suffering from

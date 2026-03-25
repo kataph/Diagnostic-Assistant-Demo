@@ -55,19 +55,19 @@ def parse_configuration() -> Configuration:
     parser.add_argument("--tokenizer-model", type=str,
                         default="cl100k_base", help="Tokenizer model name for retrieval")
 
-    # Neurosymolic assistant assistant
+    # Neurosymolic assistant model
     parser.add_argument("--NS-assistant-model", type=str, default="gpt-4.1",
                         help="Model name for the Nneurosymbolic diagnostic assistant (it is used only for limited entity extraction and binary classification tasks)")
 
-    # Diagnostic assistant
+    # Diagnostic assistant model
     parser.add_argument("--LLM-assistant-model", type=str, default="gpt-4.1",
                         help="Model name for the LLM-monolithic diagnostic assistant")
 
-    # Service agent
+    # Service agent model
     parser.add_argument("--LLM-service-model", type=str, default="gpt-4.1",
                         help="Model name for the LLM-monolithic servige agent")
 
-    # Fized saboteur scenario
+    # Fixed saboteur scenario
     parser.add_argument("--forced-scenario", type=int, default=0,
                         help="Scenario id when using fixed scenario saboteur.")
 
@@ -188,6 +188,8 @@ match configuration.ASSISTANT_TYPE:
         assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration)
     case 'LLM':
         assistant = DiagnosticAssistantLLM(system, configuration)
+    case 'Mock':
+        assistant = DiagnosticAssistantMock(system, configuration)
     case _:
         raise ValueError(
             f'Unknown assistant type: {configuration.ASSISTANT_TYPE}')

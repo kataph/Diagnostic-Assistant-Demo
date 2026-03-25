@@ -139,8 +139,7 @@ class Topology:
         print("Topology: ", str(self.get_topology()))
         print("Dense sets: ", str(self.get_dense_sets()))
 
-
-def minimal_dense_set(sets, logger: Logger):
+def minimal_dense_set(sets):
     """
     This function computes the smallest dense set of a topology generated from a list of sets.
     A set S is dense if (i) it belongs to the topology and (ii) has a non-empty intersection with every set in the topology.
