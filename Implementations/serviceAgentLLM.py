@@ -14,12 +14,12 @@ class LightDiagnosticActionResult(BaseModel):
     action_outcome: str
 
 
-class TesterConstrainedOutput(BaseModel):
-    root_cause_identified: bool
-    diagnostic_actions_results: list[LightDiagnosticActionResult]
+# class TesterConstrainedOutput(BaseModel):
+#     root_cause_identified: bool
+#     diagnostic_actions_results: list[LightDiagnosticActionResult]
 
-    def __str__(self):
-        return "root_cause_identified: "+str(self.root_cause_identified)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
+#     def __str__(self):
+#         return "root_cause_identified: "+str(self.root_cause_identified)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
 
 
 class TesterConstrainedLightOutput(BaseModel):
@@ -58,7 +58,7 @@ class ServiceAgentLLM(ServiceAgent):
             Your output must be as follows:
             (1) root_cause_identified: a boolean field indicating if the root cause has been identified successfully by the diagnostic action. A root cause is identified successfully if during or after the execution of the action one gains enough information to deduce a specific, unique problem/issue that was the cause of the system failure. If one is still not able to identify a unique problem the root cause has not been identified, so if one, for instance, cannot distinguish between two problems, then the root cause has not been identified. Of course, one could always switch to considering a more general problem that covers the union of multiple problems and state that that problem was the root cause, and that the root cause has been identified, but we do not want this arbitrariness: please, use attent judgment and analyze the context to decide when a problem is a root cause or not. Keep in mind, as guidance, that for us a problem is a root cause when its individuation allows the service engineer to restore the system function with the minimal effort and cost. 
             (2) why_is_the_root_cause_identified_or_not: a text field where you have to write (in a very brief way!!) why do you think that the root cause has/has not been successfully identified
-            (3) action_outcome: a sentence a sentence describing what the diagnostic action result was. 
+            (3) action_outcome: a sentence describing what the diagnostic action result was. 
             Always respond concisely with just the results of the diagnostic actions without further inference or considerations. Also do not reveal directly what the root cause is, only that you answer describing the results of the diagnostic actions. """,
             model=self.service_model,
             output_type=TesterConstrainedLightOutput,

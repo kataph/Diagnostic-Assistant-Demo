@@ -58,8 +58,10 @@ class Configuration:
     CLIENT: OpenAI = field(default_factory=OpenAI)
 
     LOG_PATH: str = "Logs"
-    LOG_FILE: str = "DIAGNOSTIC_SCENARIO_RUN" + "_" + \
+    LOG_FILE: str = field(
+        default_factory=lambda: "DIAGNOSTIC_SCENARIO_RUN" + "_" + \
         datetime.now().isoformat(timespec='seconds')
+    )
     LOG_LEVEL: int = 20
 
     def get_file_handler(self) -> logging.FileHandler:

@@ -3,7 +3,7 @@ import asyncio
 import os
 import tempfile
 from dataclasses import dataclass
-from typing import Dict, Optional, List
+from typing import Dict
 
 import whisper
 from fastapi import FastAPI, UploadFile, File, Query
@@ -28,7 +28,7 @@ app.add_middleware(
 
 @dataclass
 class Session:
-    prompt_log: List[str]              # all prompts sent to the user
+    prompt_log: list[str]              # all prompts sent to the user
     incoming: asyncio.Queue[str]       # recognized texts from user
 
 

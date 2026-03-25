@@ -75,7 +75,7 @@ class FaultTree(BaseModel):
         return basic_events
 
     def pretty_print_FT(self, return_instead_of_print=True) -> None | str:
-        return (PrettyPrintTree(self.get_children, self.get_value, return_instead_of_print=return_instead_of_print, color='', border=True)(self.get_top_event())) if self.get_top_event() else print(f"Fault tree malformed, FT dump is\n{self}")
+        return (PrettyPrintTree(self.get_children, self.get_value, return_instead_of_print=return_instead_of_print, color='', border=True)(self.get_top_event())) if not isinstance(self.get_top_event(), list) else print(f"Fault tree malformed, FT dump is\n{self}")
 
     # this function must also be cached, since it stochastic
     @add_disk_caching_option_for_methods
@@ -169,25 +169,11 @@ faultTreeGenerator = Agent(
     output_type=FaultTree,
 )
 
-symptomGenerator = Agent(
-    name="SymptomGenerator",
-    instructions="""You are an expert reliability engineer. You will receive in input 
-  (i) a description of an engineered system, together with 
-  (ii) a specific fault (root cause) that the system is suffering from
-
-  Your job is to output a description of the symptoms that the system will exhibit in the presence of such a fault, as a list of strings.
-
-  Note that the symptoms can be multiple and can affect multiple components of the system. Also the sysmptoms must be observable effects of the fault, i.e., things that can be measured or perceived when interacting with the system. Finally, ensure that the symptoms you select are plausible given the description of the system provided in input, and that there is a causal relationship between the fault and the symptoms you describe. And, most importantely, do not include the fault itself among the symptoms. 
-  """,
-    model="gpt-4.1",
-)
-
-
 class SymptomGeneratorOutput(BaseModel):
     symptom_descriptions: SymptomDescriptions
 
 
-symptomGenerator_v2 = Agent(
+symptomGenerator = Agent(
     name="SymptomGenerator",
     instructions="""You are an expert reliability engineer. You will receive in input 
   (i) a description of an engineered system, together with 
@@ -211,18 +197,17 @@ class SaboteurLLMFaultTree(Saboteur):
     async def generate_fault_tree_with_self_correction(
         self,
         faultTreeGenerator: Agent,
-        conversation_start: str,
+        conversation_start: list[dict],
     ) -> FaultTree:
         """
         Generates a FaultTree using the LLM with automatic self-correction.
         Retries generation if validation fails.
         """
 
-        conversation: str = conversation_start
+        conversation: list[dict] = conversation_start
         last_exception: Exception | None = None
 
         for attempt in range(1, self.MAX_RETRIES + 1):
-            exceptions = []
             try:
                 ft: FaultTree = await possibly_cached_runner_run(
                     agent=faultTreeGenerator,
@@ -239,7 +224,6 @@ class SaboteurLLMFaultTree(Saboteur):
                 return ft
 
             except Exception as e:
-                exceptions.append(e)
                 last_exception = e
                 # error_stack: str = traceback.format_exc()
                 # self.logger.error(f"Error in FT generation: last exception is {last_exception}, error stack is: {error_stack}, use cache is {self.configuration.USE_CACHE}")
@@ -303,8 +287,8 @@ class SaboteurLLMFaultTree(Saboteur):
                  "text": f"The system is experiencing the following fault: \nname: {determined_fault.name} \ndescription: {determined_fault.description}"}
             ]
         }]
-        o: SymptomGeneratorOutput = await possibly_cached_runner_run(agent=symptomGenerator_v2, input=input_for_symptom_generator, cached=self.configuration.USE_CACHE)
+        o: SymptomGeneratorOutput = await possibly_cached_runner_run(agent=symptomGenerator, input=input_for_symptom_generator, cached=self.configuration.USE_CACHE)
         symptom_descriptions = o.symptom_descriptions
         self.logger.info(
             f'Corresponding symptoms ({len(symptom_descriptions)} symptoms): ' + symptom_descriptions.one_line_repr())
-        return RootCauseDescription(root_cause_description_proper=str(determined_fault), symptom_descriptions=symptom_descriptions)
+        return RootCauseDescription(root_cause_description_proper=str(determined_fault), symptoms_descriptions=symptom_descriptions)

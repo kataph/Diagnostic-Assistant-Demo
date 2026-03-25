@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from abc import ABC, abstractmethod
-from typing import Iterator, List, Literal, Optional
+from typing import Iterator, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from configuration import Configuration
@@ -113,22 +113,6 @@ class DiagnosticActionResult(BaseModel):
         return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
 
 
-class TesterConstrainedOutputText(BaseModel):
-    system_works_again: bool
-    diagnostic_actions_results: list[TextDiagnosticActionResult]
-
-    def __str__(self):
-        return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
-
-
-class TesterConstrainedOutput(BaseModel):
-    system_works_again: bool
-    diagnostic_actions_results: list[DiagnosticActionResult]
-
-    def __str__(self):
-        return "system_works_again: "+str(self.system_works_again)+"\ndiagnostic_actions_results:\n    "+"\n    ".join([str(x) for x in self.diagnostic_actions_results])
-
-
 class TextDiagnosticAction(BaseModel):
     action_name: str
     action_description: str
@@ -197,7 +181,7 @@ class RootCauseHypothesis(BaseModel):
     confidence: float = Field(ge=0, le=1)
     proposed_by: str = "assistant"
 
-# Human interface thorugh either CLI or voice
+# Human interface through either CLI or voice
 
 
 class HumanIO(ABC):
@@ -222,7 +206,7 @@ class CLIHumanIO(HumanIO):
 
     async def read_line(self, prompt: Optional[str] = None) -> str:
         # Run blocking input() in a thread so we don't block the event loop.
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         line = await loop.run_in_executor(None, input, prompt or "> ")
         return line
 
@@ -249,16 +233,16 @@ class VoiceHumanIO(HumanIO):
 ###
 
 
-class DiagnosticPlan(BaseModel):
+class DiagnosticPlan(BaseModel, ABC):
     model_config = ConfigDict(extra="allow")  # Allows extra fields
 
-    # actions: List[DiagnosticAction]
+    # actions: list[DiagnosticAction]
     # current_index: int = 0
     # status: PlanStatus = PlanStatus.ONGOING
-    # hypotheses: List[RootCauseHypothesis] = Field(default_factory=list)
+    # hypotheses: list[RootCauseHypothesis] = Field(default_factory=list)
 
     @abstractmethod
-    def get_next_action(self) -> DiagnosticAction | None:
+    def get_next_action(self, logger: logging.Logger = None) -> DiagnosticAction | None:
         ...
 
 
@@ -266,8 +250,8 @@ class AssistantState(BaseModel):
     # model_config = ConfigDict(extra="allow") # Allows extra fields
 
     general_system_description: SystemDescription | None = None
-    initial_observations: List[Observation] = Field(default_factory=list)
-    diagnostic_scenario_memory: List[DiagnosticActionResult] = Field(
+    initial_observations: list[Observation] = Field(default_factory=list)
+    diagnostic_scenario_memory: list[DiagnosticActionResult] = Field(
         default_factory=list)
 
     user_finished: bool = False
@@ -319,7 +303,7 @@ class DiagnosticAssistant(ThingThatLogs):
         self.state = AssistantState(general_system_description=description)
 
     @abstractmethod
-    async def setup(self, observations: List[Observation]) -> None:
+    async def setup(self, observations: list[Observation]) -> None:
         """
         Updates assistant internal state with initial observations.
         """
@@ -370,7 +354,7 @@ class ServiceAgent(ThingThatLogs):
         self,
         system: SystemDescription,
         root_cause_description: Optional[RootCauseDescription]
-    ) -> List[Observation]:
+    ) -> list[Observation]:
         ...
 
     @abstractmethod

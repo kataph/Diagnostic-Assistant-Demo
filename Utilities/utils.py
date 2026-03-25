@@ -1,7 +1,4 @@
-import sys
 import ast
-from functools import reduce
-from itertools import chain, combinations
 
 
 def get_key(s):
@@ -31,13 +28,3 @@ def get_set(k):
     """
     elements = ast.literal_eval(k)
     return set(elements)
-
-
-# Example usage
-s = {'b', 'a'}
-k = get_key(s)
-# print(type(k))
-# print(k)
-s1 = get_set(k)
-# print(s1)
-# print(s == s1)

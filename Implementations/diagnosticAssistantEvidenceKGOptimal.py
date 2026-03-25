@@ -1,6 +1,6 @@
 import math
 
-from logging import Logger, root
+from logging import Logger
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from typing import Optional, Literal as LiteralType
@@ -22,7 +22,7 @@ from Utilities.OWL_reasoning import expand_with_hermit
 
 
 class HeuristicTestingProcedure(DiagnosticPlan):
-    """Represents a greedy testic procedure based on an information heuristic: given a matrix of test/problems (stored as a map test->problems -- test2problem), can suggest the next action and update itself based on the action outcome"""
+    """Represents a greedy testing procedure based on an information heuristic: given a matrix of test/problems (stored as a map test->problems -- test2problem), can suggest the next action and update itself based on the action outcome"""
     test2problem: dict[DiagnosticAction, list[object]]
 
     def __bool__(self):
@@ -41,7 +41,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
         where T is the total number of unique problems and A is the number
         of problems associated with the given action.
 
-        Returns 0 if the action covers all remaining problems.
+        Returns 0 if the action covers all remaining problems or none of them.
 
         Cost is never supposed to be zero. 
         """
@@ -107,12 +107,9 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             if not anomaly_encountered and not no_anomaly_encountered:
                 raise ValueError(
                     f"The action outcome {free_text_outcome} contains neither the 'anomalous' nor the 'nominal' words. It should exactly one of these!")
-            if anomaly_encountered:
-                return 'anomalous'
-            if no_anomaly_encountered:
-                return 'nominal'
+            return 'anomalous' if anomaly_encountered else 'nominal'
 
-        if not last_action_outcome.simplified_outcome or last_action_outcome.simplified_outcome == "":
+        if not last_action_outcome.simplified_outcome:
             simple_outcome = await get_simplified_outcome(last_action_outcome.outcome)
         else:
             simple_outcome = last_action_outcome.simplified_outcome
@@ -227,7 +224,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             # Will never return None at this point since explicit plan contains something...
             return await self.suggest_action()
 
-    def _create_testing_procedure(self) -> HeuristicTestingProcedure:
+    def _create_testing_procedure(self) -> Optional[HeuristicTestingProcedure]:
         if len(self.state.current_candidates) == 0:
             self.logger.info(
                 "Cannot generate a new HeuristicTestingProcedure: candidate list is empty")
@@ -242,7 +239,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         self.logger.debug(f"""I queried to get test_problem_cost matrix. I queried with
                     ontology_path={self.configuration.KG_PATH},
                     schema_path={self.configuration.ONTOLOGY_PATH},
-                    subjects={set(self.configuration.ONTOLOGY_NAMESPACE[component_str] for component_str in self.state.current_candidates)},
+                    subjects={set(URIRef(component_str) for component_str in self.state.current_candidates)},
                     expand={False},
                     
                     And got test_problem_cost = {test_problem_cost}
@@ -295,7 +292,7 @@ def query_ontology_with_subjects_object_query(ontology_path: str, schema_path: s
     return results
 
 
-def get_diagnostic_action_properties(ontology_path: str, subject: URIRef) -> tuple[diagnosticActionTypes, str, str]:
+def get_diagnostic_action_properties(ontology_path: str, subject: URIRef) -> tuple[diagnosticActionTypes, Optional[str], Optional[str]]:
     query = """
     PREFIX : <http://www.example.org/zorro/>
 

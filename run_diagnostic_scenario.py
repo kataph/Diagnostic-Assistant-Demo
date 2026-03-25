@@ -147,9 +147,11 @@ def get_vision_file_id(file_path, client):
     return result.id
 
 
+with open(configuration.TEXT_INPUT_FILE) as f:
+    _text_input = f.read()
+    
 system = SystemDescription(
-    # text_input="Power, control, and load cubes with LEDs.",
-    text_input=open(configuration.TEXT_INPUT_FILE).read(),
+    text_input=_text_input,
     file_id=get_vision_file_id(
         configuration.DIAGRAM_PATH, configuration.CLIENT),
 )

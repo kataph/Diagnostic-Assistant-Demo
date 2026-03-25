@@ -83,16 +83,6 @@ def add_disk_caching_option_for_methods(func):
             return result
     return wrapper
 
-# class adder():
-#     @add_disk_caching_option_for_methods
-#     def add(self, x, y):
-#         return x+y
-
-# a=adder()
-# print(a.add(11,1, cached = False))
-# print(a.add(11,1, cached = True))
-# quit()
-
 
 def async_disk_cache_runner_run(func):
     @wraps(func)

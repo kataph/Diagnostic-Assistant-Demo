@@ -1,6 +1,5 @@
 from typing import Optional
 
-from Utilities.caching import async_disk_cache_CLI
 from environment_classes import Saboteur, SymptomDescription, SystemDescription, SymptomDescriptions, RootCauseDescription
 
 
@@ -170,7 +169,7 @@ SCENARIOS = [
          symptoms_descriptions=SymptomDescriptions([
              SymptomDescription("The led on the power supply module is on"),
              SymptomDescription(
-                 "The lamp turns of about every 20 seconds for about half a second. Then it turn on again. This keeps happening."),
+                 "The lamp turns off about every 20 seconds for about half a second. Then it turns on again. This keeps happening."),
          ])
      )),
 ]
@@ -183,8 +182,10 @@ class SaboteurFixedScenario(Saboteur):
         return super().description + "_" + f"scenario_id={self.configuration.FORCED_SCENARIO_ID}"
 
     async def sabotage(self, description: SystemDescription) -> Optional[RootCauseDescription]:
-        _, system, rc = next(
-            scenario for scenario in SCENARIOS if scenario[0] == self.configuration.FORCED_SCENARIO_ID)
+        forced_scenarios = [scenario for scenario in SCENARIOS if scenario[0] == self.configuration.FORCED_SCENARIO_ID]
+        if len(forced_scenarios) != 1:
+            raise ValueError(f"Scenarios with id {self.configuration.FORCED_SCENARIO_ID} are {len(forced_scenarios)}. It should be exactly 1!")
+        _, system, rc = forced_scenarios[0]
         self.logger.info(
             f"The system was saboted producing the following root cause: {rc.one_liner_repr()}")
         return rc
