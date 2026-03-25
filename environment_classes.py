@@ -265,7 +265,7 @@ class DiagnosticPlan(BaseModel):
 class AssistantState(BaseModel):
     # model_config = ConfigDict(extra="allow") # Allows extra fields
 
-    general_system_description: SystemDescription = None
+    general_system_description: SystemDescription | None = None
     initial_observations: List[Observation] = Field(default_factory=list)
     diagnostic_scenario_memory: List[DiagnosticActionResult] = Field(
         default_factory=list)

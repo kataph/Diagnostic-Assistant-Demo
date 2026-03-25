@@ -73,6 +73,6 @@ class ServiceAgentHuman(ServiceAgent):
 
         return (True, RootCauseDescription(
             root_cause_description_proper=(await self.io.read_line("Describe the root cause you believe has determined the system failure: ")).strip(),
-            symptoms_descriptions=[],
+            symptoms_descriptions=None,
             notes=(await self.io.read_line("Optional notes: ")).strip() or None,
         ))

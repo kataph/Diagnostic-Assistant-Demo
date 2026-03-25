@@ -12,7 +12,9 @@ class ServiceAgentMock(ServiceAgent):
         root_cause_description: Optional[RootCauseDescription]
     ) -> list[Observation]:
         self.mock_counter = 0
-        return [Observation(description=chunk) for chunk in system.text_input.split('.')]
+        mock_observations = [Observation(description=chunk) for chunk in system.text_input.split('.')]
+        self.mock_observations_number = len(self.mock_observations)
+        return mock_observations
 
     async def execute_action(self, system: SystemDescription, action: DiagnosticAction, root_cause_description: Optional[RootCauseDescription]) -> DiagnosticActionResult:
         await sleep(0.5)
@@ -21,7 +23,7 @@ class ServiceAgentMock(ServiceAgent):
         return DiagnosticActionResult(action=action, outcome=result)
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
-        if self.mock_counter > len([Observation(description=system.text_input)]):
+        if self.mock_counter > self.mock_observations_number:
             return True, RootCauseDescription(root_cause_description_proper="Mock root cause")
         self.mock_counter += 1
         return False, None
