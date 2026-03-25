@@ -77,7 +77,7 @@ class FaultTree(BaseModel):
     def pretty_print_FT(self, return_instead_of_print=True) -> None | str:
         return (PrettyPrintTree(self.get_children, self.get_value, return_instead_of_print=return_instead_of_print, color='', border=True)(self.get_top_event())) if self.get_top_event() else print(f"Fault tree malformed, FT dump is\n{self}")
 
-    # this function must also be cached, since it stocastic
+    # this function must also be cached, since it stochastic
     @add_disk_caching_option_for_methods
     def select_one_random_basic_event(self) -> FaultTreeEvent:
         # basic events are those that are in no gate output. Chooses one at random and returns its name

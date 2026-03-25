@@ -16,7 +16,7 @@ class ServiceAgentHuman(ServiceAgent):
                 self.io = VoiceHumanIO()
             case _:
                 raise ValueError(
-                    f"Unknow interface mode: {self.configuration.INTERFACE_MODE}")
+                    f"Unknown interface mode: {self.configuration.INTERFACE_MODE}")
 
     # @async_disk_cache_CLI #TODO: comment when not saving time...
     async def collect_initial_observations(

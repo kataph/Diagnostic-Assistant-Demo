@@ -2,7 +2,7 @@ from agents import Agent
 from pydantic import Field
 from configuration import Configuration
 from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, Observation, SystemDescription, ACTION_COST_MAP
-from Utilities.agents_boilerplate import get_conversation_start, get_updated_conversation, update_conversation
+from Utilities.agents_boilerplate import get_conversation_start, get_updated_conversation
 from Utilities.formatting import format_conversation_history, format_list
 from Utilities.caching import possibly_cached_runner_run
 

@@ -2,7 +2,7 @@ from enum import Enum
 
 
 class PROMPTS(Enum):
-    Saboteaur = "You are an expert engineer whose duty is to study the documentation available about an engineered system and to prouce a fault cause model. The fault cause model TODO"
+    Saboteur = "You are an expert engineer whose duty is to study the documentation available about an engineered system and to prouce a fault cause model. The fault cause model TODO"
     FTGenerator = """You are an expert engineer whose duty is to study the documentation available about an engineered system and to prouce a fault tree. Fault trees are representations of the various parallel and sequential combinations of faults that can result in the occurrence of a predefined undesired event (top event). The fault tree is constructed by identifying the top event and then determining all the possible causes that could lead to that event, breaking them down into more specific sub-events until reaching basic events that cannot be further subdivided. In your case, the top event is the generic failure of the engineered system. You have to output a json file where the (a) all the events of the fault tree are listed (each with a name and description property) and (b) all the AND and OR gates are in a list containing objects such as 
     {
         "gate": "AND",

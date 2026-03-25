@@ -90,7 +90,7 @@ class MultiLayerBeliefModel:
         """
 
         # Avoid redundant computations
-        if self.delta_tau != None:
+        if self.delta_tau is not None:
             return self.delta_tau
 
         delta = self.get_delta().items()

@@ -9,27 +9,32 @@ import pickle
 import inspect
 import logging
 
-# sets up logging for the caching funtions
 CACHE_FOLDER = "Cache"
 cache_logger = logging.getLogger("cache_logger")
 cache_logger.setLevel(10)  # INFO is 20
 
-os.makedirs(CACHE_FOLDER, exist_ok=True)
-file_handler = logging.FileHandler(os.path.join(
-    CACHE_FOLDER, "cache_logs.txt"), encoding="utf-8")
-
-fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-datefmt = "%Y-%m-%d %H:%M:%S"
-formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)
-file_handler.setFormatter(formatter)
-
-cache_logger.addHandler(file_handler)
-
-
-# This is a async,agent-friendly caching mechanism from chatgpt...
-cache = Cache(CACHE_FOLDER)
-# cache.clear() # this will remove cache storage, comment to make caching persistent. Uncomment to reset the cache content.
 _MISSING = object()  # one shared sentinel
+_cache: Cache | None = None
+_cache_logger_configured = False
+
+
+def _get_cache() -> Cache:
+    """Lazy initialiser: creates the cache directory, log file, and diskcache
+    instance on first call. Nothing touches the filesystem on import."""
+    global _cache, _cache_logger_configured
+    if not _cache_logger_configured:
+        os.makedirs(CACHE_FOLDER, exist_ok=True)
+        file_handler = logging.FileHandler(
+            os.path.join(CACHE_FOLDER, "cache_logs.txt"), encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter(
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"))
+        cache_logger.addHandler(file_handler)
+        _cache_logger_configured = True
+    if _cache is None:
+        _cache = Cache(CACHE_FOLDER)
+        # _cache.clear()  # uncomment to reset cache content
+    return _cache
 
 
 def add_disk_caching_option(func):
@@ -46,21 +51,21 @@ def add_disk_caching_option(func):
         else:
             key = (func.__module__, func.__qualname__, tuple(repr(arg)
                    for arg in args), frozenset(repr(kwarg) for kwarg in kwargs.items()))
-            if key in cache:
+            if key in _get_cache():
                 cache_logger.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
-                return cache[key]
+                return _get_cache()[key]
             cache_logger.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
             result = func(*args, **kwargs)
-            cache[key] = result
+            _get_cache()[key] = result
             return result
     return wrapper
 
 
 def add_disk_caching_option_for_methods(func):
+    """The decorator adds a keyword argument to the function: 'cached': bool = False. If set to true, disk caching is used to cache the function. Note that the class instance will not be used to build the key"""
     if "cached" in inspect.signature(func).parameters:
         raise TypeError(
             f"'cached' argument already used in {func.__qualname__}")
-    """The decorator adds a keyword argument to the function: 'cached': bool = False. If set to true, disk caching is used to cache the function. Note that the class instance will not be used to build the key"""
     @wraps(func)
     def wrapper(*args, cached=False, **kwargs):
         # the repr thing is my idea after noticing that the FM tree in input leads to random missing
@@ -69,12 +74,12 @@ def add_disk_caching_option_for_methods(func):
         else:
             key = (func.__module__, func.__qualname__, tuple(repr(arg)
                    for arg in args[1:]), frozenset(repr(kwarg) for kwarg in kwargs.items()))
-            if key in cache:
+            if key in _get_cache():
                 cache_logger.debug(f"[SYNC CACHE HIT] key={str(key)[:40]}...")
-                return cache[key]
+                return _get_cache()[key]
             cache_logger.debug(f"[SYNC CACHE MISS] key={str(key)[:40]}...")
             result = func(*args, **kwargs)
-            cache[key] = result
+            _get_cache()[key] = result
             return result
     return wrapper
 
@@ -107,10 +112,7 @@ def async_disk_cache_runner_run(func):
         key = hashlib.sha256(pickle.dumps(raw)).hexdigest()
 
         # 3) try cache
-        def get_from_cache():
-            return cache.get(key, _MISSING)
-
-        cached_value = await asyncio.to_thread(get_from_cache)
+        cached_value = await asyncio.to_thread(lambda: _get_cache().get(key, _MISSING))
         if cached_value is not _MISSING:
             cache_logger.warning(
                 f"[CACHE HIT] {agent_id} / key={key[:8]}... / raw={raw}")
@@ -124,10 +126,7 @@ def async_disk_cache_runner_run(func):
         result = await func(agent, *args, **kwargs)
 
         # 5) store in cache
-        def set_in_cache():
-            cache.set(key, result)
-
-        await asyncio.to_thread(set_in_cache)
+        await asyncio.to_thread(lambda: _get_cache().set(key, result))
         return result
 
     return wrapper
@@ -149,8 +148,8 @@ def async_disk_cache_CLI(func):
         key = hashlib.sha256(pickle.dumps(raw)).hexdigest()
 
         # Read from disk (non-blocking)
-        cached_value = await asyncio.to_thread(cache.get, key)
-        if cached_value is not None:
+        cached_value = await asyncio.to_thread(lambda: _get_cache().get(key, _MISSING))
+        if cached_value is not _MISSING:
             cache_logger.warning(f"[CACHE HIT] raw={raw} --- key={key[:8]}...")
             return cached_value
         cache_logger.warning(f"[CACHE MISS] raw={raw} --- key={key[:8]}...")
@@ -159,7 +158,7 @@ def async_disk_cache_CLI(func):
         result = await func(*args, **kwargs)
 
         # Store result (non-blocking)
-        await asyncio.to_thread(cache.set, key, result)
+        await asyncio.to_thread(lambda: _get_cache().set(key, result))
 
         return result
 

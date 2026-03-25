@@ -281,9 +281,6 @@ class AssistantState(BaseModel):
     user_finished: bool = False
     user_confirmed_root_cause: Optional[RootCauseDescription] = None
 
-    def __str__(self):
-        return f"model_config: {self.model}"
-
 # All diagnostic-scenario-environment-roles classes receive a configuration and may log info about their behavior
 
 

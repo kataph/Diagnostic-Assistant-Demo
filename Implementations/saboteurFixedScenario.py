@@ -90,7 +90,7 @@ SCENARIOS = [
      )),
     (7, "10_cubes",
      RootCauseDescription(
-        root_cause_description_proper="The switch in the control module 3 is detatched from one of the corresponding cables.",
+        root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables.",
         symptoms_descriptions=SymptomDescriptions([
             SymptomDescription("The led on the power supply module is on"),
             SymptomDescription(
@@ -101,7 +101,7 @@ SCENARIOS = [
      )),
     (8, "10_cubes",
      RootCauseDescription(
-        root_cause_description_proper="The switch in the control module 3 is detatched from one of the corresponding cables. Also, all the control module leds have been removed.",
+        root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
         symptoms_descriptions=SymptomDescriptions([
             SymptomDescription("The led on the power supply module is on"),
             SymptomDescription(
@@ -112,7 +112,7 @@ SCENARIOS = [
      )),
     (9, "10_cubes",
      RootCauseDescription(
-        root_cause_description_proper="The switch in the control module 6 is detatched from one of the corresponding cables. Also, all the control module leds have been removed.",
+        root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
         symptoms_descriptions=SymptomDescriptions([
             SymptomDescription("The led on the power supply module is on"),
             SymptomDescription(
@@ -123,7 +123,7 @@ SCENARIOS = [
      )),
     (10, "10_cubes",
      RootCauseDescription(
-         root_cause_description_proper="The switch in the control module 6 is detatched from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimiter or other tools at its disposal to take electric measurements.",
+         root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimiter or other tools at its disposal to take electric measurements.",
          symptoms_descriptions=SymptomDescriptions([
              SymptomDescription("The led on the power supply module is on"),
              SymptomDescription(
@@ -134,7 +134,7 @@ SCENARIOS = [
      )),
     (11, "3_cubes",
      RootCauseDescription(
-         root_cause_description_proper="Detached cable from the switch and, at the same time and indipendently, The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
+         root_cause_description_proper="Detached cable from the switch and, at the same time and independently, The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
          symptoms_descriptions=SymptomDescriptions([
              SymptomDescription(
                  "The lamp does not turn on when the switch is operated"),
@@ -146,7 +146,7 @@ SCENARIOS = [
      )),
     (12, "10_cubes",
      RootCauseDescription(
-         root_cause_description_proper="The switch in the control module 3 is detatched from one of the corresponding cables. Also, at the same time and indipendently, battery is exhausted.",
+         root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, at the same time and independently, battery is exhausted.",
          symptoms_descriptions=SymptomDescriptions([
              SymptomDescription("The led on the power supply module is off"),
              SymptomDescription("All the leds on the control modules are off"),

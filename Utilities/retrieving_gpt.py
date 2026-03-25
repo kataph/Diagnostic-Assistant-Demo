@@ -10,7 +10,6 @@ from openai import OpenAI
 # CONFIG
 # =====================
 
-FOLDER_PATH = "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes"
 CACHE_PATH = "embeddings_cache.pkl"
 
 EMBED_MODEL = "text-embedding-3-small"
@@ -149,7 +148,9 @@ def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_ove
 # =====================
 
 
-def retrieve_top_chunks(query: str, client: OpenAI, top_k: int = TOP_K, folder_path=FOLDER_PATH, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, tokenizer_model=TOKENIZER_MODEL, embed_model=EMBED_MODEL, cache_path=CACHE_PATH) -> list[Chunk]:
+def retrieve_top_chunks(query: str, client: OpenAI, top_k: int = TOP_K, folder_path: str | None = None, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, tokenizer_model=TOKENIZER_MODEL, embed_model=EMBED_MODEL, cache_path=CACHE_PATH) -> list[Chunk]:
+    if folder_path is None:
+        raise ValueError("folder_path must be provided (no default path is configured)")
     chunks, chunk_embeddings = get_chunks_and_embeddings(
         client, folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model, cache_path)
     query_embedding = embed_texts([query], client, embed_model)[0]

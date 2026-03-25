@@ -29,7 +29,3 @@ def get_updated_conversation(conversation: list[dict], new_text: str) -> list[di
              "text": new_text}
         ]
     }]
-
-
-def update_conversation(conversation: list[dict], new_text: str) -> None:
-    conversation = get_updated_conversation(conversation, new_text)

@@ -172,7 +172,7 @@ match configuration.SABOTEUR_TYPE:
         saboteur = SaboteurFixedScenario(configuration)
     case _:
         raise ValueError(
-            f'Unknow saboteur type: {configuration.SABOTEUR_TYPE}')
+            f'Unknown saboteur type: {configuration.SABOTEUR_TYPE}')
 match configuration.SERVICE_TYPE:
     case 'Human':
         service_agent = ServiceAgentHuman(configuration)
@@ -182,7 +182,7 @@ match configuration.SERVICE_TYPE:
         service_agent = ServiceAgentMock(configuration)
     case _:
         raise ValueError(
-            f'Unknow service agent type: {configuration.SERVICE_TYPE}')
+            f'Unknown service agent type: {configuration.SERVICE_TYPE}')
 match configuration.ASSISTANT_TYPE:
     case 'EvidenceKGOptimal':
         assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration)
@@ -190,7 +190,7 @@ match configuration.ASSISTANT_TYPE:
         assistant = DiagnosticAssistantLLM(system, configuration)
     case _:
         raise ValueError(
-            f'Unknow assistant type: {configuration.ASSISTANT_TYPE}')
+            f'Unknown assistant type: {configuration.ASSISTANT_TYPE}')
 
 # saboteur = SaboteurHuman(configuration)
 # service_agent = ServiceAgentHuman(configuration)
