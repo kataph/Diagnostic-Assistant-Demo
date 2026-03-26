@@ -120,7 +120,7 @@ def _short_psu_output_and_discharge(sys: DiagnosableSystem) -> None:
 
 SCENARIOS: list[Scenario] = [
     Scenario(
-        id=0, system_name="3_cubes",
+        id=1, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="One of the cables connected to the switch has been detached",
             symptoms_descriptions=SymptomDescriptions([
@@ -132,7 +132,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_disconnect_ctrl_cable_out_pos],
     ),
     Scenario(
-        id=1, system_name="3_cubes",
+        id=2, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Burned lamp filaments",
             symptoms_descriptions=SymptomDescriptions([
@@ -144,7 +144,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_burn_main_bulb],
     ),
     Scenario(
-        id=2, system_name="3_cubes",
+        id=3, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Battery is depleted",
             symptoms_descriptions=SymptomDescriptions([
@@ -156,7 +156,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_deplete_battery],
     ),
     Scenario(
-        id=3, system_name="3_cubes",
+        id=4, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Battery has been installed incorrectly (it has been installed with inverted polarity)",
             symptoms_descriptions=SymptomDescriptions([
@@ -168,7 +168,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_invert_battery],
     ),
     Scenario(
-        id=4, system_name="3_cubes",
+        id=5, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
             symptoms_descriptions=SymptomDescriptions([
@@ -180,7 +180,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_cross_psu_ctrl_cables],
     ),
     Scenario(
-        id=5, system_name="3_cubes",
+        id=6, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Internal open circuit in the switch: the switch is always open.",
             symptoms_descriptions=SymptomDescriptions([
@@ -192,7 +192,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_force_switch_open],
     ),
     Scenario(
-        id=6, system_name="10_cubes",
+        id=7, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Battery exhausted.",
             symptoms_descriptions=SymptomDescriptions([
@@ -204,7 +204,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,  # 10-cubes system not yet in simulation
     ),
     Scenario(
-        id=7, system_name="10_cubes",
+        id=8, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables.",
             symptoms_descriptions=SymptomDescriptions([
@@ -216,7 +216,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=8, system_name="10_cubes",
+        id=9, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
             symptoms_descriptions=SymptomDescriptions([
@@ -228,7 +228,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=9, system_name="10_cubes",
+        id=10, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
             symptoms_descriptions=SymptomDescriptions([
@@ -240,7 +240,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=10, system_name="10_cubes",
+        id=11, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimiter or other tools at its disposal to take electric measurements.",
             symptoms_descriptions=SymptomDescriptions([
@@ -252,7 +252,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=11, system_name="3_cubes",
+        id=12, system_name="3_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="Detached cable from the switch and, at the same time and independently, The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
             symptoms_descriptions=SymptomDescriptions([
@@ -264,7 +264,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=[_cross_psu_ctrl_cables, _disconnect_ctrl_cable_out_pos],
     ),
     Scenario(
-        id=12, system_name="10_cubes",
+        id=13, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, at the same time and independently, battery is exhausted.",
             symptoms_descriptions=SymptomDescriptions([
@@ -276,7 +276,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=13, system_name="10_cubes",
+        id=14, system_name="10_cubes",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The cables that come out from the power supply module are accidently shorted. This discharged the battery violently and now the battery does not supply power anymore. Replacing the battery will not solve the issue.",
             symptoms_descriptions=SymptomDescriptions([
@@ -288,7 +288,7 @@ SCENARIOS: list[Scenario] = [
         fault_fns=None,
     ),
     Scenario(
-        id=14, system_name="ambient_light_sensor",
+        id=15, system_name="ambient_light_sensor",
         root_cause=RootCauseDescription(
             root_cause_description_proper="The lamp turns off about every 20 seconds because the sensor is incorrectly positioned and receives part of the light of the lamp: a sufficient quantity to make the sensor turn off the lamp. This happens about every 20 seconds due to the ambient light sensor inner workings. After the light turns off the sensor records a below-threshold ambient light and turns on the lamp almost immediately. This keeps occurring.",
             symptoms_descriptions=SymptomDescriptions([

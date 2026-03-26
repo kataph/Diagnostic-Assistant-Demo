@@ -11,7 +11,7 @@ from rdflib.namespace import split_uri
 
 
 from configuration import Configuration
-from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticPlan, Observation, diagnosticActionTypes
+from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticFaultHypothesis, DiagnosticPlan, HypothesisVerificationResult, Observation, diagnosticActionTypes
 from Utilities.formatting import terminal_uri_parts_gpt, to_one_line
 from Utilities.utils import get_key, get_set
 from Utilities.caching import possibly_cached_runner_run
@@ -191,8 +191,15 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             last_outcome)  # increases diagnostic memory
         await self.state.current_explicit_plan.update_test_problem_matrix(last_outcome, self.logger)
 
-    async def suggest_action(self) -> Optional[DiagnosticAction]:
-        """Will call the current diagnostic plan get_next_action method. If that is unsuccessful it will update the current_pieces_of_evidence by removing the current candidates (since they are considered a dead path) and try to generate a new testing procedure. If that is also unsuccessful, it will fail."""
+    async def suggest_action(self) -> Optional[DiagnosticAction | DiagnosticFaultHypothesis]:
+        """
+        Return the next DiagnosticAction from the current plan, or a
+        DiagnosticFaultHypothesis when the plan is exhausted and recovery
+        cannot find new candidates (i.e. the last standing candidates are
+        the best available hypothesis for the root cause).
+        Returns None only if there are genuinely no candidates and no
+        evidence remaining.
+        """
         self.logger.debug(
             f"Current explicit plan is {self.state.current_explicit_plan}")
 
@@ -201,7 +208,9 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                 f"Got next action from current plan: {next_action.get_name()}")
             return next_action
         else:  # plan is currently exhausted, must try instantiating a new plan
-            # will discard current candidates and try again
+            # Save candidates BEFORE removing them so we can report them as a
+            # hypothesis if recovery fails to find anything new.
+            exhausted_candidates = set(self.state.current_candidates)
             self.logger.warning(
                 "Current plan exhausted... I will remove the current candidates from each piece of evidence, try to generate a new plan and call my suggest_action method again.")
             for i, piece in enumerate(self.state.current_pieces_of_evidence):
@@ -216,13 +225,40 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             self.logger.info(
                 f"Starting pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)} --- Starting candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}")
             self.state.current_explicit_plan = self._create_testing_procedure()
-            # could be because no more pieces of evidence, but also because no more info from kg
             if not self.state.current_explicit_plan:
+                # No new candidates after recovery. The last exhausted candidates
+                # are our best hypothesis; emit it for the service agent to verify.
+                if exhausted_candidates:
+                    self.logger.info(
+                        f"Plan fully exhausted. Emitting fault hypothesis for "
+                        f"candidates: {terminal_uri_parts_gpt(exhausted_candidates)}")
+                    return DiagnosticFaultHypothesis(
+                        suspected_components={str(c) for c in exhausted_candidates},
+                        explanation="All diagnostic tests exhausted; these are the final remaining candidate components.",
+                    )
                 self.logger.error(
-                    "Could not generate a plan... Out of ideas: either inject additional knowledge in the knowledge base or try with a new list of observations")
+                    "Could not generate a plan and no candidates remain. "
+                    "Out of ideas: inject additional knowledge or revise observations.")
                 return None
             # Will never return None at this point since explicit plan contains something...
             return await self.suggest_action()
+
+    async def record_hypothesis_outcome(
+        self,
+        hypothesis: DiagnosticFaultHypothesis,
+        result: HypothesisVerificationResult,
+    ) -> None:
+        await super().record_hypothesis_outcome(hypothesis, result)
+        if result.outcome == "partial":
+            self.logger.info(
+                "Hypothesis partially confirmed: some suspected components were faulty "
+                "but the system is not yet fully restored. Continuing diagnosis."
+            )
+        elif result.outcome == "wrong":
+            self.logger.warning(
+                "Hypothesis was wrong: none of the suspected components were faulty. "
+                "All candidates exhausted; session will end."
+            )
 
     def _create_testing_procedure(self) -> Optional[HeuristicTestingProcedure]:
         if len(self.state.current_candidates) == 0:

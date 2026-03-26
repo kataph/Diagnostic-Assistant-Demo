@@ -19,6 +19,8 @@ ACTION_COST_MAP = {
     'Observe': 1,
 }
 
+HYPOTHESIS_VERIFICATION_COST: int = 120
+
 class SystemDescription(BaseModel):
     model_config = ConfigDict(frozen=False)   # mutable, so that the simulated system can change
     text_input: str
@@ -186,6 +188,36 @@ class RootCauseHypothesis(BaseModel):
     confidence: float = Field(ge=0, le=1)
     proposed_by: str = "assistant"
 
+
+class DiagnosticFaultHypothesis(BaseModel):
+    """
+    Emitted by a DiagnosticAssistant (instead of a DiagnosticAction) when it
+    has gathered enough evidence to declare which components it believes are
+    faulty.  The service agent must then attempt to verify the claim by
+    repairing/replacing those components and observing whether system function
+    is restored.
+    """
+    suspected_components: set[str]
+    explanation: Optional[str] = None
+
+
+class HypothesisVerificationResult(BaseModel):
+    """
+    Returned by ServiceAgent.verify_hypothesis() after attempting to
+    repair/replace the components named in a DiagnosticFaultHypothesis.
+
+    outcome:
+      "correct" – all faulty components identified; system function fully restored.
+      "partial" – at least one suspected component was indeed faulty and has been
+                  fixed, but the system is still not working (more faults remain).
+      "wrong"   – none of the suspected components turned out to be faulty.
+    """
+    hypothesis: DiagnosticFaultHypothesis
+    outcome: Literal["correct", "partial", "wrong"]
+    narrative: str
+    cost: float = HYPOTHESIS_VERIFICATION_COST
+
+
 # Human interface through either CLI or voice
 
 
@@ -321,10 +353,29 @@ class DiagnosticAssistant(ThingThatLogs):
         self.state.diagnostic_scenario_memory.append(last_outcome)
 
     @abstractmethod
-    async def suggest_action(self) -> Optional[DiagnosticAction]:
+    async def suggest_action(self) -> Optional[DiagnosticAction | DiagnosticFaultHypothesis]:
         """
-        Given the assistant internal state, the next suggested action is returned, or None if no action is available.
+        Return either:
+          - a DiagnosticAction to be executed next, or
+          - a DiagnosticFaultHypothesis when the assistant is confident enough
+            to declare which components it believes are faulty, or
+          - None when the assistant has no further ideas.
         """
+
+    async def record_hypothesis_outcome(
+        self,
+        hypothesis: DiagnosticFaultHypothesis,
+        result: HypothesisVerificationResult,
+    ) -> None:
+        """
+        Called after the service agent has verified a fault hypothesis.
+        Default implementation just logs; subclasses may override to incorporate
+        the feedback into their internal reasoning state.
+        """
+        self.logger.info(
+            f"Hypothesis {hypothesis.suspected_components} verified with "
+            f"outcome '{result.outcome}': {result.narrative}"
+        )
 
     def finish_session(self, root_cause: Optional[RootCauseDescription]) -> None:
         """
@@ -370,6 +421,24 @@ class ServiceAgent(ThingThatLogs):
         ...
 
     @abstractmethod
+    async def verify_hypothesis(
+        self,
+        system: SystemDescription,
+        hypothesis: DiagnosticFaultHypothesis,
+        root_cause_description: Optional[RootCauseDescription],
+    ) -> HypothesisVerificationResult:
+        """
+        Attempt to verify the assistant's fault hypothesis by repairing/replacing
+        the suspected components and checking whether system function is restored.
+        The verification carries a fixed cost of HYPOTHESIS_VERIFICATION_COST.
+
+        Returns a HypothesisVerificationResult with outcome "correct", "partial",
+        or "wrong".  If "correct" the orchestrator will end the session; for
+        "partial" or "wrong" it feeds the result back to the assistant and
+        continues the diagnostic loop.
+        """
+
+    @abstractmethod
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
         """
         Return True with optional FaultDescription when the agent decides the diagnosis is done,
@@ -407,31 +476,57 @@ async def run_diagnostic_scenario(
         f"Diagnostic assistant has finished setup. Starting diagnostic loop...")
 
     # 3) Diagnostic loop
-    last_outcome: Optional[DiagnosticActionResult] = None
     suggested_actions_history: list[DiagnosticActionResult] = []
     time_vector: list[float] = []
-    
+    cost_vector: list[float] = []
+
     while True:
-        action = await assistant.suggest_action()
-        if action is None:
-            print("\nAssistant has no further actions to suggest.")
-        else:
+        suggestion = await assistant.suggest_action()
+
+        if isinstance(suggestion, DiagnosticFaultHypothesis):
+            # Assistant is declaring a fault hypothesis — service agent verifies it.
             start = perf_counter()
-            last_outcome = await service_agent.execute_action(system, action, sabotage_root)
+            verification = await service_agent.verify_hypothesis(system, suggestion, sabotage_root)
+            end = perf_counter()
+            time_vector.append(end - start)
+            cost_vector.append(verification.cost)
+            scenario_logger.info(
+                f"Hypothesis {suggestion.suspected_components} verified: "
+                f"outcome='{verification.outcome}' | {verification.narrative}"
+            )
+            await assistant.record_hypothesis_outcome(suggestion, verification)
+
+            if verification.outcome == "correct":
+                # All faults found; system restored — end session.
+                assistant.finish_session(None)
+                break
+            # "partial" or "wrong": fall through to decide_finish so the
+            # service agent can stop early (patience) or continue.
+
+        elif isinstance(suggestion, DiagnosticAction):
+            start = perf_counter()
+            last_outcome = await service_agent.execute_action(system, suggestion, sabotage_root)
             end = perf_counter()
             suggested_actions_history.append(last_outcome)
-            time_vector.append(elapsed_time := end-start)
+            time_vector.append(end - start)
+            cost_vector.append(
+                last_outcome.precise_action_cost
+                if last_outcome.precise_action_cost is not None
+                else last_outcome.action.get_cost()
+            )
             await assistant.record_outcome(last_outcome)
 
-        # Ask service agent if it wants to finish
+        else:  # suggestion is None
+            print("\nAssistant has no further actions to suggest.")
+
+        # Ask service agent if it wants to finish.
         user_finished, user_root = await service_agent.decide_finish(system, assistant.state, sabotage_root)
         if user_finished:
             assistant.finish_session(user_root)
             break
 
-        if action is None:
-            # No further actions and agent wants to continue: auto-stop here,
-            # or you could add custom behavior.
+        if suggestion is None:
+            # No further suggestions and agent chose to continue: auto-stop.
             print("No actions and agent chose to continue; that is, the user will continue the diagnosis and the assistant cannot help. Ending session automatically.")
             break
 
@@ -443,7 +538,6 @@ async def run_diagnostic_scenario(
     else:
         scenario_logger.info(
             "Service agent ended session without recording a root cause.")
-    cost_vector = [x.precise_action_cost if x.precise_action_cost is not None else x.action.get_cost() for x in suggested_actions_history]
     scenario_logger.info(f"Cost vector: {cost_vector}")
     scenario_logger.info(
         f"Total cost: {sum(cost_vector)} --- Number of suggestions: {len(cost_vector)} ")

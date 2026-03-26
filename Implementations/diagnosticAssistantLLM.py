@@ -1,10 +1,27 @@
 from agents import Agent
-from pydantic import Field
+from pydantic import BaseModel, Field
+from typing import Literal, Optional
 from configuration import Configuration
-from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, Observation, SystemDescription, ACTION_COST_MAP
+from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, DiagnosticFaultHypothesis, HypothesisVerificationResult, Observation, SystemDescription, ACTION_COST_MAP, diagnosticActionTypes
 from Utilities.agents_boilerplate import get_conversation_start, get_updated_conversation
 from Utilities.formatting import format_conversation_history, format_list
 from Utilities.caching import possibly_cached_runner_run
+
+
+class DiagnosticSuggestion(BaseModel):
+    """
+    Output type for the LLM diagnostic assistant.
+    The LLM chooses between suggesting a diagnostic action or declaring a
+    fault hypothesis.
+    """
+    suggestion_type: Literal["action", "hypothesis"]
+    # Fields used when suggestion_type == "action":
+    action_type: Optional[diagnosticActionTypes] = None
+    action_target: Optional[str] = None
+    action_description: Optional[str] = None
+    # Fields used when suggestion_type == "hypothesis":
+    suspected_components: Optional[list[str]] = None
+    hypothesis_explanation: Optional[str] = None
 
 
 class AssistantStateLLM(AssistantState):
@@ -22,20 +39,33 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         )
         self.constrainedoutputdiagnoser_v3 = Agent(
             name="ConstrainedOutputDiagnoser",
-            instructions=("""You are an expert reliability engineer. You will receive in input a description of an engineered system that is suffering from some fault, and possibly a history of diagnostic actions executed on the system and their results.
-        Your job is to find the root cause of such a fault. 
-        To do so, you can suggest diagnostic actions to be executed on the system, and you will receive in input the results of such diagnostic actions.
-        You can repeat this process multiple times. You will have discovered what the root cause is when the system will start working again.
-        """ +
-                          "Your output must be a single diagnostic action." +
-                          """A action is a described by the following properties: 
-            - type: a field taking one of the following values: 'Replace', 'Adjust', 'Test', 'Observe'. The field value is assigned depending on what the action consist of: the tye 'Replace' is for actions involving swapping a component with another component. 'Adjust' is for adjusting, refitting, tuning, reconfiguring, or repairing a component without replacing it. 'Test' is for testing or measuring a component using tools and/or by actively manipulating it. Finally 'Observe' is for visually inspecting or analyzing a component without tools and without physically manipulating it.
-            - target: a part of the system that will be the target of the action
-            - description: a brief and succint natural language description of the action
-        """ +
-                          f"When suggesting actions, do keep in mind that (a) you can give in output at most one action of a given type and target and (b) different actions have different cost to be executed. In particular, we stipulate that the action cost is function only of action_type: 'Replace' has a cost of {str(ACTION_COST_MAP['Replace'])}, 'Adjust' has a cost of {str(ACTION_COST_MAP['Adjust'])}, 'Test' has a cost of {str(ACTION_COST_MAP['Test'])}, and 'Observe' has a cost of {str(ACTION_COST_MAP['Observe'])}."),
-            model=self.configuration.LLM_ASSISTANT_MODEL,  # default "gpt-4.1",
-            output_type=DiagnosticAction
+            instructions=(
+                "You are an expert reliability engineer. You will receive a description of an "
+                "engineered system that is suffering from some fault, and possibly a history of "
+                "diagnostic actions executed on the system and their results.\n"
+                "Your job is to find the root cause of such a fault.\n\n"
+                "On each turn you must choose ONE of the two following output modes:\n\n"
+                "MODE 1 — suggest a diagnostic action (suggestion_type='action'):\n"
+                "  Use this when you need more information before committing to a diagnosis.\n"
+                "  Provide action_type, action_target, and action_description.\n"
+                "  - action_type: 'Replace' (swap a component), 'Adjust' (tune/repair without "
+                "replacing), 'Test' (measure/manipulate with tools), or 'Observe' (visually "
+                "inspect without tools).\n"
+                "  - action_target: the component to act on.\n"
+                "  - action_description: a brief natural-language description of the action.\n"
+                f"  Action costs by type: Replace={ACTION_COST_MAP['Replace']}, "
+                f"Adjust={ACTION_COST_MAP['Adjust']}, Test={ACTION_COST_MAP['Test']}, "
+                f"Observe={ACTION_COST_MAP['Observe']}.\n\n"
+                "MODE 2 — declare a fault hypothesis (suggestion_type='hypothesis'):\n"
+                "  Use this ONLY when you are sufficiently confident about which specific "
+                "components are faulty. The service agent will then attempt to repair/replace "
+                "those components and report whether the system is restored.\n"
+                "  Provide suspected_components (a list of component names/IDs you believe are "
+                "faulty) and optionally hypothesis_explanation.\n\n"
+                "Do not switch to MODE 2 prematurely: a wrong hypothesis has a high fixed cost."
+            ),
+            model=self.configuration.LLM_ASSISTANT_MODEL,
+            output_type=DiagnosticSuggestion,
         )
 
     @property
@@ -52,12 +82,43 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         self.state.conversation_history = get_updated_conversation(
             self.state.conversation_history, f"Someone executed a (additional) diagnostic action on the system. The action (type, target_component, description, outcome) was: \nTYPE: {last_outcome.action.type},\nTARGET: {last_outcome.action.target},\nDESCRIPTION: {last_outcome.action.description},\nRESULT: {last_outcome.outcome}.\n")
 
-    async def suggest_action(self) -> DiagnosticAction:
-        suggested_action: DiagnosticAction = await possibly_cached_runner_run(self.constrainedoutputdiagnoser_v3, input=self.state.conversation_history, cached=self.configuration.USE_CACHE)
+    async def suggest_action(self) -> DiagnosticAction | DiagnosticFaultHypothesis:
+        raw: DiagnosticSuggestion = await possibly_cached_runner_run(
+            self.constrainedoutputdiagnoser_v3,
+            input=self.state.conversation_history,
+            cached=self.configuration.USE_CACHE,
+        )
         self.logger.debug(
             f"INPUT: \n{format_conversation_history(self.state.conversation_history)}\n")
-        self.logger.info(f"OUTPUT: \n{str(suggested_action)}\n\n")
-        return suggested_action
+        self.logger.info(f"OUTPUT: \n{str(raw)}\n\n")
+        if raw.suggestion_type == "action":
+            return DiagnosticAction(
+                type=raw.action_type,
+                target=raw.action_target,
+                description=raw.action_description,
+            )
+        else:
+            return DiagnosticFaultHypothesis(
+                suspected_components=set(raw.suspected_components or []),
+                explanation=raw.hypothesis_explanation,
+            )
+
+    async def record_hypothesis_outcome(self, hypothesis, result):
+        await super().record_hypothesis_outcome(hypothesis, result)
+        components_str = ", ".join(hypothesis.suspected_components)
+        self.state.conversation_history = get_updated_conversation(
+            self.state.conversation_history,
+            f"You declared a fault hypothesis: suspected faulty components = [{components_str}]. "
+            f"The service agent attempted to repair/replace them. "
+            f"Outcome: '{result.outcome}'. Details: {result.narrative}. "
+            + (
+                "The system is now fully restored — diagnosis complete."
+                if result.outcome == "correct"
+                else "The system is NOT yet fully restored. Please continue the diagnosis."
+                if result.outcome == "partial"
+                else "Your hypothesis was wrong: none of the suspected components were faulty. Please reconsider."
+            )
+        )
 
     def finish_session(self, root_cause):
         super().finish_session(root_cause)

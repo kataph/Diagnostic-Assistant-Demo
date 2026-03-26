@@ -1,12 +1,13 @@
 import asyncio
 from typing import Optional
 
-from diagnosable_systems_simulation.systems.base_system import DiagnosableSystem
 from nl_interface import run as nl_run
 
 from configuration import Configuration
 from environment_classes import (
     AssistantState, DiagnosticAction, DiagnosticActionResult,
+    DiagnosticFaultHypothesis, HypothesisVerificationResult,
+    HYPOTHESIS_VERIFICATION_COST,
     Observation, RootCauseDescription, ServiceAgent, SystemDescription,
 )
 
@@ -24,11 +25,10 @@ class ServiceAgentSpiceSim(ServiceAgent):
     and the simulation-level cost (time, equipment, resources) are logged
     so that the two cost models can be compared and calibrated.
 
-    The agent terminates after configuration.MAX_NUMBER_OF_ROUNDS rounds
-    (patience-based). It never returns a confirmed root cause because the
-    simulation has no built-in oracle for that judgement; couple it with
-    a diagnostic assistant that does its own termination reasoning, or
-    replace decide_finish with an LLM-based judge if needed.
+    Termination: the orchestrator loop terminates automatically when the
+    assistant's verify_hypothesis call returns "correct" (all faults found,
+    system restored) or when suggest_action() returns None (total exhaustion).
+    A patience cap fires after MAX_NUMBER_OF_ROUNDS as a safety net.
     """
 
     INITIAL_OBSERVATIONS_PROMPT = (
@@ -40,7 +40,6 @@ class ServiceAgentSpiceSim(ServiceAgent):
         super().__init__(configuration)
         self.patience_level = configuration.MAX_NUMBER_OF_ROUNDS - 1
         self.annoyance_level = 0
-
 
     @property
     def description(self) -> str:
@@ -56,11 +55,11 @@ class ServiceAgentSpiceSim(ServiceAgent):
         root_cause_description: Optional[RootCauseDescription],
     ) -> list[Observation]:
         """
-        If not self.LLM_elaborates_initial_observations and there are no symptoms_descriptions in the root cause, Observe the externally visible state of the (already-faulted) simulated
-        system and return it as a single Observation. Otherwise the symptoms are returned as default symptoms.
+        Observe the externally visible state of the (already-faulted) simulated
+        system and return it as a single Observation.
 
-        NOTE: the fault must already be applied to system.simulated_system before this is
-        called.  A SaboteurSimulation companion class is responsible for that.
+        NOTE: the fault must already be applied to system.simulated_system before
+        this is called.  SaboteurSpiceSim is responsible for that.
         """
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
@@ -73,7 +72,6 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         return [Observation(description=narrative)]
 
-
     async def execute_action(
         self,
         system: SystemDescription,
@@ -83,11 +81,6 @@ class ServiceAgentSpiceSim(ServiceAgent):
         """
         Forward the action's natural-language description to nl_interface.run()
         and wrap the verbalized result in a DiagnosticActionResult.
-
-        The action description (set by the diagnostic assistant, possibly
-        enriched by HeuristicTestingProcedure) is used as the NL prompt so
-        that any context added by the planner is preserved.  Falls back to
-        the action name if no description is set.
         """
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
@@ -104,6 +97,60 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         return DiagnosticActionResult(action=action, outcome=narrative, precise_action_cost=sim_cost.time)
 
+    async def verify_hypothesis(
+        self,
+        system: SystemDescription,
+        hypothesis: DiagnosticFaultHypothesis,
+        root_cause_description: Optional[RootCauseDescription],
+    ) -> HypothesisVerificationResult:
+        """
+        Ask nl_interface to attempt to repair/replace the suspected components
+        and report whether the system is restored.
+
+        The prompt instructs the simulation to output exactly one of the
+        keywords 'correct', 'partial', or 'wrong' so that outcome parsing
+        is unambiguous.
+        """
+        if not system.simulated_system:
+            raise ValueError("Got in input a system description without a simulation!")
+
+        components_str = ", ".join(hypothesis.suspected_components)
+        verify_prompt = (
+            f"Attempt to repair or replace the following suspected faulty components: "
+            f"{components_str}. "
+            "After the repair attempt, observe the system state carefully. "
+            "If the system function is fully restored, write exactly 'correct'. "
+            "If at least one of the named components was indeed faulty and has been "
+            "replaced/repaired but the system is still not working, write exactly 'partial'. "
+            "If the repair attempt had no effect and the system is still broken, "
+            "write exactly 'wrong'."
+        )
+        narrative, sim_cost = await asyncio.to_thread(
+            nl_run, verify_prompt, system.simulated_system
+        )
+
+        narrative_lower = narrative.lower()
+        if "correct" in narrative_lower:
+            outcome = "correct"
+        elif "partial" in narrative_lower:
+            outcome = "partial"
+        else:
+            outcome = "wrong"
+
+        self.logger.info(
+            f"Hypothesis verification via simulation | "
+            f"suspected={hypothesis.suspected_components} | "
+            f"outcome='{outcome}' | "
+            f"sim_time={sim_cost.time:.1f}s | "
+            f"narrative: {narrative}"
+        )
+        return HypothesisVerificationResult(
+            hypothesis=hypothesis,
+            outcome=outcome,
+            narrative=narrative,
+            cost=HYPOTHESIS_VERIFICATION_COST,
+        )
+
     async def decide_finish(
         self,
         system: SystemDescription,
@@ -111,8 +158,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
         root_cause_description: Optional[RootCauseDescription],
     ) -> tuple[bool, Optional[RootCauseDescription]]:
         """
-        Patience-based termination: ends the session after MAX_NUMBER_OF_ROUNDS.
-        Returns no confirmed root cause (the simulation has no oracle for that).
+        Patience-based safety cap.  Natural termination is driven by the
+        assistant emitting a DiagnosticFaultHypothesis that verifies as
+        "correct", which the orchestrator handles before calling decide_finish.
         """
         if self.annoyance_level >= self.patience_level:
             self.logger.info(

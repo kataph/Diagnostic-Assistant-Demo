@@ -1,5 +1,5 @@
 from typing import Optional
-from environment_classes import AssistantState, CLIHumanIO, RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticAction, DiagnosticActionResult, VoiceHumanIO
+from environment_classes import AssistantState, CLIHumanIO, DiagnosticFaultHypothesis, HypothesisVerificationResult, HYPOTHESIS_VERIFICATION_COST, RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticAction, DiagnosticActionResult, VoiceHumanIO
 from Utilities.caching import async_disk_cache_CLI
 
 
@@ -59,6 +59,40 @@ class ServiceAgentHuman(ServiceAgent):
         self.logger.info(
             f"The human service agent executed an action and obtained an outcome: {dar}")
         return dar
+
+    async def verify_hypothesis(
+        self,
+        system: SystemDescription,
+        hypothesis: DiagnosticFaultHypothesis,
+        root_cause_description: Optional[RootCauseDescription],
+    ) -> HypothesisVerificationResult:
+        components_str = ", ".join(hypothesis.suspected_components)
+        await self.io.prompt(
+            f"\nThe assistant declares the following components as faulty: [{components_str}]"
+        )
+        if hypothesis.explanation:
+            await self.io.prompt(f"  Explanation: {hypothesis.explanation}")
+        await self.io.prompt(
+            f"Try repairing/replacing them (verification cost: {HYPOTHESIS_VERIFICATION_COST})."
+        )
+        valid_outcomes = ["correct", "partial", "wrong"]
+        answer = ""
+        while answer not in valid_outcomes:
+            answer = (await self.io.read_line(
+                "Was the system restored? [correct / partial / wrong]> "
+            )).strip().lower()
+            if answer not in valid_outcomes:
+                await self.io.prompt("Please reply with 'correct', 'partial', or 'wrong'.")
+        narrative = (await self.io.read_line("Describe the outcome: ")).strip()
+        self.logger.info(
+            f"Human verified hypothesis {hypothesis.suspected_components}: outcome={answer}"
+        )
+        return HypothesisVerificationResult(
+            hypothesis=hypothesis,
+            outcome=answer,
+            narrative=narrative,
+            cost=HYPOTHESIS_VERIFICATION_COST,
+        )
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
         answer = (await self.io.read_line("\nDo you consider the diagnosis done now? [y/else]\n> ")).strip().lower()

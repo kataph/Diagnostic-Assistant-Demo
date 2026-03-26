@@ -163,7 +163,7 @@ def append_results(out_path: Path, mean_cost: float, std_cost: float, mean_time:
         f.write(f"{n_runs}\t{forced_scenario}\t{system}\t{mean_cost:.6f}\t{std_cost:.6f}\t{mean_time:.6f}\t{std_time:.6f}\t{mean_action_number:.6f}\t{std_action_number:.6f}\t{log_files_interval}\n")
 
 
-def main_args(num_runs, base_dir, forced_scenario, assistant, rounds, skip_runs: bool, log_dir, out_file, service="LLM"):
+def main_args(num_runs, base_dir, forced_scenario, assistant, rounds, skip_runs: bool, log_dir, out_file, service):
 
 
     target_scenarios = [scenario for scenario in SCENARIOS if scenario[0] == forced_scenario]
@@ -228,7 +228,8 @@ def main():
     parser.add_argument(
         "--service",
         type=str,
-        default="LLM",
+        required=True,
+        # default="LLM",
         help="Service agent type for the scenario",
     )
     parser.add_argument(
@@ -258,37 +259,37 @@ if __name__ == "__main__":
     # main_args(2, base_dir, 1, "LLM", 10, False, log_dir, out_file) # rapid test
     # main_args(1, base_dir, 1, "EvidenceKGOptimal", 10, False, log_dir, out_file, "LLM") # rapid test
 
-    main_args(10, base_dir, 0, "LLM", 10, False, log_dir, out_file)
-    main_args(10, base_dir, 0, "EvidenceKGOptimal",
-              10, False, log_dir, out_file)
+    # main_args(10, base_dir, 0, "LLM", 10, False, log_dir, out_file)
+    # main_args(10, base_dir, 0, "EvidenceKGOptimal",
+    #           10, False, log_dir, out_file)
 
-    # main_args(10, base_dir, 1, "LLM", 10, True, log_dir, out_file)
-    # main_args(10, base_dir, 2, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 3, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 4, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 5, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 6, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 7, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 8, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 9, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 10, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 11, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 12, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 12, "LLM", 8, True, log_dir, out_file)
-    # main_args(10, base_dir, 1, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 1, "LLM", 10, True, log_dir, out_file, "SpiceSim")
+    # # main_args(10, base_dir, 2, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 3, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 4, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 5, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 6, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 7, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 8, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 9, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 10, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 11, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 12, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 12, "LLM", 8, True, log_dir, out_file)
+    # # main_args(10, base_dir, 1, "EvidenceKGOptimal", 10, False, log_dir, out_file)
 
-    # main_args(10, base_dir, 2, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 3, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 4, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 5, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    main_args(10, base_dir, 6, "EvidenceKGOptimal",
-              10, False, log_dir, out_file)
-    # main_args(10, base_dir, 7, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 8, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 9, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 10, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 11, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    main_args(10, base_dir, 12, "EvidenceKGOptimal",
-              10, False, log_dir, out_file)
-    # main_args(10, base_dir, 13, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 14, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 2, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 3, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 4, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 5, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # main_args(10, base_dir, 6, "EvidenceKGOptimal",
+    #           10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 7, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 8, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 9, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 10, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 11, "EvidenceKGOptimal", 10, False, log_dir, out_file)
+    # main_args(10, base_dir, 12, "EvidenceKGOptimal",
+    #           10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 13, "LLM", 10, False, log_dir, out_file)
+    # # main_args(10, base_dir, 14, "LLM", 10, False, log_dir, out_file)

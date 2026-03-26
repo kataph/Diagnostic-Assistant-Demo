@@ -3,7 +3,7 @@ from agents import Agent
 from pydantic import BaseModel, RootModel
 
 from Utilities.caching import possibly_cached_runner_run
-from environment_classes import RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticActionResult, DiagnosticAction, AssistantState
+from environment_classes import DiagnosticFaultHypothesis, HypothesisVerificationResult, HYPOTHESIS_VERIFICATION_COST, RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticActionResult, DiagnosticAction, AssistantState
 
 from Utilities.agents_boilerplate import get_conversation_start
 
@@ -23,12 +23,15 @@ class LightDiagnosticActionResult(BaseModel):
 
 
 class TesterConstrainedLightOutput(BaseModel):
-    root_cause_identified: bool
-    why_is_the_root_cause_identified_or_not: str
     action_outcome: str
 
     def __str__(self):
-        return "root_cause_identified: "+str(self.root_cause_identified)+f" With motivation: {self.why_is_the_root_cause_identified_or_not} "+f"\ndiagnostic_action_outcome: {self.action_outcome}"
+        return f"diagnostic_action_outcome: {self.action_outcome}"
+
+
+class HypothesisVerificationOutput(BaseModel):
+    outcome: str   # "correct" | "partial" | "wrong"
+    narrative: str
 
 
 class ObservationList(BaseModel):
@@ -48,19 +51,30 @@ class ServiceAgentLLM(ServiceAgent):
         self.patience_level = configuration.MAX_NUMBER_OF_ROUNDS - \
             1  # simulates an user patience
         self.annoyance_level = 0  # simulates an user patience
-        self.root_cause_identified = False
         self.service_model = configuration.SERVICE_MODEL
         self.serviceAgent = Agent(
             name="ConstrainedInputTester",
-            instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. The diagnostic action will be given as an (action_type, action_target, action_description) tuple. You have to answer your colleague with the results of the diagnostic action. When the trainee executes a diagnostic action that individuates the root cause of the failure (repair is not necessary), record it in the boolean field 'root_cause_identified' (otherwise such field must be set to false). 
-            
-            Your output must be as follows:
-            (1) root_cause_identified: a boolean field indicating if the root cause has been identified successfully by the diagnostic action. A root cause is identified successfully if during or after the execution of the action one gains enough information to deduce a specific, unique problem/issue that was the cause of the system failure. If one is still not able to identify a unique problem the root cause has not been identified, so if one, for instance, cannot distinguish between two problems, then the root cause has not been identified. Of course, one could always switch to considering a more general problem that covers the union of multiple problems and state that that problem was the root cause, and that the root cause has been identified, but we do not want this arbitrariness: please, use attent judgment and analyze the context to decide when a problem is a root cause or not. Keep in mind, as guidance, that for us a problem is a root cause when its individuation allows the service engineer to restore the system function with the minimal effort and cost. 
-            (2) why_is_the_root_cause_identified_or_not: a text field where you have to write (in a very brief way!!) why do you think that the root cause has/has not been successfully identified
-            (3) action_outcome: a sentence describing what the diagnostic action result was. 
+            instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. The diagnostic action will be given as an (action_type, action_target, action_description) tuple. You have to answer your colleague with the results of the diagnostic action.
+            Your output must be:
+            action_outcome: a sentence describing what the diagnostic action result was.
             Always respond concisely with just the results of the diagnostic actions without further inference or considerations. Also do not reveal directly what the root cause is, only that you answer describing the results of the diagnostic actions. """,
             model=self.service_model,
             output_type=TesterConstrainedLightOutput,
+        )
+        self.hypothesisVerifierAgent = Agent(
+            name="HypothesisVerifier",
+            instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive a description of an engineered system, the actual fault it is suffering from, and a hypothesis proposed by a trainee about which components are faulty. Your job is to simulate what would happen if those components were repaired/replaced.
+
+Respond with:
+  outcome: exactly one of "correct", "partial", or "wrong".
+    - "correct": ALL faulty components were named in the hypothesis and repairing/replacing them restores full system function.
+    - "partial": at least one named component was indeed faulty and has been fixed, but the system is still not working because additional faults remain that were NOT named.
+    - "wrong": none of the named components were actually faulty; repairing them changes nothing.
+  narrative: a brief sentence describing what the repair attempt revealed.
+
+Do NOT reveal the actual root cause beyond what is needed to justify the outcome.""",
+            model=self.service_model,
+            output_type=HypothesisVerificationOutput,
         )
         self.serviceAgent_initialObservations = Agent(
             name="ConstrainedInputTester_start",
@@ -100,7 +114,7 @@ class ServiceAgentLLM(ServiceAgent):
     async def execute_action(self, system: SystemDescription, action: DiagnosticAction, root_cause_description: RootCauseDescription) -> DiagnosticActionResult:
         conversation_history_service = (
             self._get_input_for_initial_observations(system, root_cause_description) +
-            # For the tester, the conversation history does not grow: it does not need to rememer previous tests, and it would also risk losing memory or becoming biased
+            # For the tester, the conversation history does not grow: it does not need to remember previous tests, and it would also risk losing memory or becoming biased
             [{
                 "role": "user",
                 "content": [
@@ -112,12 +126,49 @@ class ServiceAgentLLM(ServiceAgent):
             }])
 
         o: TesterConstrainedLightOutput = await possibly_cached_runner_run(self.serviceAgent, input=conversation_history_service, cached=self.configuration.USE_CACHE)
-        self.root_cause_identified = o.root_cause_identified
         self.logger.info(
             f"Agent executed action: {action.get_name()} with outcome {o.action_outcome}")
-        self.logger.info(
-            f"Agent thinks that the root cause has been found? {o.root_cause_identified}. Why? {o.why_is_the_root_cause_identified_or_not}")
         return DiagnosticActionResult(action=action, outcome=o.action_outcome)
+
+    async def verify_hypothesis(
+        self,
+        system: SystemDescription,
+        hypothesis: DiagnosticFaultHypothesis,
+        root_cause_description: Optional[RootCauseDescription],
+    ) -> HypothesisVerificationResult:
+        components_str = ", ".join(hypothesis.suspected_components)
+        conversation = (
+            self._get_input_for_initial_observations(system, root_cause_description) +
+            [{
+                "role": "user",
+                "content": [{"type": "input_text", "text":
+                    f"The trainee declares the following components to be faulty: [{components_str}]. "
+                    f"Simulate what would happen if those components were repaired/replaced."
+                    + (f" Explanation from trainee: {hypothesis.explanation}" if hypothesis.explanation else "")
+                }]
+            }]
+        )
+        o: HypothesisVerificationOutput = await possibly_cached_runner_run(
+            self.hypothesisVerifierAgent, input=conversation, cached=self.configuration.USE_CACHE
+        )
+        # Normalise outcome in case the LLM adds extra text
+        outcome_raw = o.outcome.strip().lower()
+        if "correct" in outcome_raw:
+            outcome = "correct"
+        elif "partial" in outcome_raw:
+            outcome = "partial"
+        else:
+            outcome = "wrong"
+        self.logger.info(
+            f"Hypothesis verification: suspected={hypothesis.suspected_components} "
+            f"outcome='{outcome}' narrative='{o.narrative}'"
+        )
+        return HypothesisVerificationResult(
+            hypothesis=hypothesis,
+            outcome=outcome,
+            narrative=o.narrative,
+            cost=HYPOTHESIS_VERIFICATION_COST,
+        )
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: RootCauseDescription) -> tuple[bool, None]:
         if self.annoyance_level >= self.patience_level:
@@ -125,4 +176,4 @@ class ServiceAgentLLM(ServiceAgent):
                 "The Service agent decides it is not worth using the tool...")
             return (True, None)
         self.annoyance_level += 1
-        return (self.root_cause_identified, None)
+        return (False, None)
