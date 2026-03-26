@@ -5,16 +5,25 @@ import logging
 
 from abc import ABC, abstractmethod
 from typing import Iterator, Literal, Optional
+from diagnosable_systems_simulation import DiagnosableSystem
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from configuration import Configuration
 from voice_client import send_prompt, get_user_text
 from time import perf_counter
 
+ACTION_COST_MAP = {
+    'Replace': 12,
+    'Adjust': 4,
+    'Test': 2,
+    'Observe': 1,
+}
 
 class SystemDescription(BaseModel):
+    model_config = ConfigDict(frozen=False)   # mutable, so that the simulated system can change
     text_input: str
     file_id: str | None = None
+    simulated_system: DiagnosableSystem | None = None
 
 
 class SymptomDescription(RootModel[str]):
@@ -71,12 +80,7 @@ class TextDiagnosticActionResult(BaseModel):
         return f"{{action_name: {self.action_name}, action_result_description: {self.action_result_description}}}"
 
 
-ACTION_COST_MAP = {
-    'Replace': 10,
-    'Adjust': 5,
-    'Test': 3,
-    'Observe': 1,
-}
+
 
 diagnosticActionTypes = Literal['Replace', 'Adjust', 'Observe', 'Test']
 
@@ -107,6 +111,7 @@ class DiagnosticAction(BaseModel):
 class DiagnosticActionResult(BaseModel):
     action: DiagnosticAction
     outcome: str
+    precise_action_cost: Optional[float] = None
     simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
 
     def __str__(self):
@@ -390,7 +395,13 @@ async def run_diagnostic_scenario(
     sabotage_root = await saboteur.sabotage(system)
 
     # 2) Initial observations
-    initial_obs = await service_agent.collect_initial_observations(system, sabotage_root)
+    if not sabotage_root or not sabotage_root.symptoms_descriptions:
+        initial_obs = await service_agent.collect_initial_observations(system, sabotage_root)
+    else:  # In this case the initial observations are those already present in the symptoms of the root cause description
+        initial_obs = [Observation(description=symp.simple_string(
+            )) for symp in sabotage_root.symptoms_descriptions]
+    scenario_logger.info(f"Initial observations: {initial_obs}")
+
     await assistant.setup(initial_obs)
     scenario_logger.info(
         f"Diagnostic assistant has finished setup. Starting diagnostic loop...")
@@ -399,7 +410,7 @@ async def run_diagnostic_scenario(
     last_outcome: Optional[DiagnosticActionResult] = None
     suggested_actions_history: list[DiagnosticActionResult] = []
     time_vector: list[float] = []
-
+    
     while True:
         action = await assistant.suggest_action()
         if action is None:
@@ -432,7 +443,7 @@ async def run_diagnostic_scenario(
     else:
         scenario_logger.info(
             "Service agent ended session without recording a root cause.")
-    cost_vector = [x.action.get_cost() for x in suggested_actions_history]
+    cost_vector = [x.precise_action_cost if x.precise_action_cost is not None else x.action.get_cost() for x in suggested_actions_history]
     scenario_logger.info(f"Cost vector: {cost_vector}")
     scenario_logger.info(
         f"Total cost: {sum(cost_vector)} --- Number of suggestions: {len(cost_vector)} ")

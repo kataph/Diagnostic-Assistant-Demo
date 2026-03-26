@@ -20,6 +20,7 @@ class Configuration:
 
     TEXT_INPUT_FILE: str
     # OUTPUT_DIRECTORY: str = "Output"
+    SYSTEM_NAME: str
     ONTOLOGY_PATH: Optional[str] = None
     ONTOLOGY_NAMESPACE: Optional[Namespace] = ZORRO
     KG_PATH: Optional[str] = None

@@ -7,6 +7,8 @@ from .serviceAgentHuman import ServiceAgentHuman
 from .serviceAgentLLM import ServiceAgentLLM
 from .serviceAgentMock import ServiceAgentMock
 from .saboteurFixedScenario import SaboteurFixedScenario
+from .saboteurSpiceSim import SaboteurSpiceSim
+from .serviceAgentSpiceSim import ServiceAgentSpiceSim
 
 __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
            "DiagnosticAssistantLLM",
@@ -16,4 +18,6 @@ __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
            "ServiceAgentHuman",
            "ServiceAgentLLM",
            "ServiceAgentMock",
-           "SaboteurFixedScenario"]
+           "SaboteurFixedScenario",
+           "SaboteurSpiceSim",
+           "ServiceAgentSpiceSim"]

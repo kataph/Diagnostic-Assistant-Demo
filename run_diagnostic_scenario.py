@@ -5,7 +5,7 @@ import logging
 import rdflib
 
 from configuration import Configuration
-from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario
+from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim
 from environment_classes import SystemDescription, run_diagnostic_scenario
 
 
@@ -16,9 +16,9 @@ def parse_configuration() -> Configuration:
     # Required Positional Arguments
 
     parser.add_argument("--saboteur", type=str, default="Human",
-                        help="Type of saboteur agent (['Human', 'LLMFaultTree', 'FixedScenario'])")
+                        help="Type of saboteur agent (['Human', 'LLMFaultTree', 'SpiceSim', 'FixedScenario'])")
     parser.add_argument("--service", type=str, default="Human",
-                        help="Type of service agent (['Human', 'LLM', 'Mock'])")
+                        help="Type of service agent (['Human', 'LLM', 'SpiceSim', 'Mock'])")
     parser.add_argument("--assistant", type=str, default="EvidenceKGOptimal",
                         help="Type of diagnostic assistant agent (['LLM', 'EvidenceKGOptimal', 'Mock'])")
 
@@ -33,7 +33,7 @@ def parse_configuration() -> Configuration:
     parser.add_argument("--kg", type=str, default=None,
                         help="Path to the kg file")
     parser.add_argument("--system", type=str, default="3CubesSystem",
-                        help="Terminal part of the whole-system IRI in the ontology file")
+                        help="Terminal part of the whole-system IRI in the ontology file [3CubesSystem, 10CubesSystem, AmbientLightSensorSystem]")
     parser.add_argument("--namespace", type=str,
                         default="http://www.example.org/zorro/", help="Namespace IRI of the ontology")
     parser.add_argument("--diagram", type=str, default=None,
@@ -99,6 +99,7 @@ def parse_configuration() -> Configuration:
         ASSISTANT_TYPE=args.assistant,
         TEXT_INPUT_FILE=args.text_input_file,
         # OUTPUT_DIRECTORY=args.output_dir,
+        SYSTEM_NAME=args.system,
         ONTOLOGY_PATH=args.ontology,
         KG_PATH=args.kg,
         DIAGRAM_PATH=args.diagram,
@@ -172,6 +173,8 @@ match configuration.SABOTEUR_TYPE:
         saboteur = SaboteurLLMFaultTree(configuration)
     case 'FixedScenario':
         saboteur = SaboteurFixedScenario(configuration)
+    case 'SpiceSim':
+        saboteur = SaboteurSpiceSim(configuration)
     case _:
         raise ValueError(
             f'Unknown saboteur type: {configuration.SABOTEUR_TYPE}')
@@ -182,6 +185,8 @@ match configuration.SERVICE_TYPE:
         service_agent = ServiceAgentLLM(configuration)
     case 'Mock':
         service_agent = ServiceAgentMock(configuration)
+    case 'SpiceSim':
+        service_agent = ServiceAgentSpiceSim(configuration)
     case _:
         raise ValueError(
             f'Unknown service agent type: {configuration.SERVICE_TYPE}')

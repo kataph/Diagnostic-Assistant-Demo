@@ -49,7 +49,6 @@ class ServiceAgentLLM(ServiceAgent):
             1  # simulates an user patience
         self.annoyance_level = 0  # simulates an user patience
         self.root_cause_identified = False
-        self.LLM_elaborates_initial_observations = False
         self.service_model = configuration.SERVICE_MODEL
         self.serviceAgent = Agent(
             name="ConstrainedInputTester",
@@ -90,16 +89,10 @@ class ServiceAgentLLM(ServiceAgent):
         root_cause_description: RootCauseDescription,
     ) -> list[Observation]:
 
-        # In this case the LLM re-elaborates or otherwise directly conceives the initial observations
-        if self.LLM_elaborates_initial_observations or not root_cause_description.symptoms_descriptions:
-            o: ObservationList = await possibly_cached_runner_run(self.serviceAgent_initialObservations, input=self._get_input_for_initial_observations(system, root_cause_description), cached=self.configuration.USE_CACHE)
-            # silly casting issues
-            observations = [Observation(description=obs)
-                            for obs in o.observations]
-        # In this case the initial observations are those already present in the symptoms of the root cause description
-        else:
-            observations = [Observation(description=symp.simple_string(
-            )) for symp in root_cause_description.symptoms_descriptions]
+        o: ObservationList = await possibly_cached_runner_run(self.serviceAgent_initialObservations, input=self._get_input_for_initial_observations(system, root_cause_description), cached=self.configuration.USE_CACHE)
+        # silly casting issues
+        observations = [Observation(description=obs)
+                        for obs in o.observations]
         self.logger.info(
             f"First observations about the system: {str(observations)}")
         return observations
