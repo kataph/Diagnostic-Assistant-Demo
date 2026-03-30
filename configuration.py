@@ -59,6 +59,7 @@ class Configuration:
     CLIENT: OpenAI = field(default_factory=OpenAI)
 
     LOG_PATH: str = "Logs"
+    CHAT_PATH: str = "Chats"
     LOG_FILE: str = field(
         default_factory=lambda: "DIAGNOSTIC_SCENARIO_RUN" + "_" + \
         datetime.now().isoformat(timespec='seconds')
@@ -68,8 +69,8 @@ class Configuration:
     def get_chat_log(self) -> "ChatLog":
         """Create and return a ChatLog writing to the same Logs directory."""
         from Utilities.chat_log import ChatLog
-        os.makedirs(self.LOG_PATH, exist_ok=True)
-        path = os.path.join(self.LOG_PATH,  self.LOG_FILE + "_CHAT.html")
+        os.makedirs(self.CHAT_PATH, exist_ok=True)
+        path = os.path.join(self.CHAT_PATH,  self.LOG_FILE + "_CHAT.html")
         return ChatLog(path, session_info=self.LOG_FILE)
 
     def get_file_handler(self) -> logging.FileHandler:

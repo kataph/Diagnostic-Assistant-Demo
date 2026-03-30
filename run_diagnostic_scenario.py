@@ -87,6 +87,8 @@ def parse_configuration() -> Configuration:
 
     parser.add_argument("--log-path", type=str, default="Logs",
                         help="Relative address of the folder for log files")
+    parser.add_argument("--chat-path", type=str, default="Chats",
+                        help="Relative address of the folder for chat files")
     parser.add_argument("--log-level", type=int, default=20,
                         help="Sets the loggers level (default is INFO = 20)")
 
@@ -112,6 +114,7 @@ def parse_configuration() -> Configuration:
         # AGENTS_FORCED_TO_NO_CACHE=args.no_cache_agents
 
         LOG_PATH=args.log_path,
+        CHAT_PATH=args.chat_path,
         LOG_LEVEL=args.log_level,
         MAX_NUMBER_OF_ROUNDS=args.rounds,
         ONTOLOGY_NAMESPACE=rdflib.Namespace(args.namespace),
