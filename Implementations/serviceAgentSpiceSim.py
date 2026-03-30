@@ -7,9 +7,97 @@ from configuration import Configuration
 from environment_classes import (
     AssistantState, DiagnosticAction, DiagnosticActionResult,
     DiagnosticFaultHypothesis, HypothesisVerificationResult,
-    HYPOTHESIS_VERIFICATION_COST,
     Observation, RootCauseDescription, ServiceAgent, SystemDescription,
 )
+
+
+def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
+    """
+    Return a compact, system-agnostic snapshot of circuit-state changes
+    introduced by the diagnostic agent relative to the post-fault-injection
+    baseline (fault_snapshot).
+
+    When fault_snapshot is provided only deviations from that baseline are
+    reported — pre-existing faults injected by the saboteur are silently
+    omitted.  When fault_snapshot is None the function falls back to showing
+    all non-nominal state (original behaviour, used only before the snapshot
+    is available).
+    """
+    snap_ports  = (fault_snapshot or {}).get("port_connections", {})
+    snap_states = (fault_snapshot or {}).get("component_states", {})
+    snap_ovls   = (fault_snapshot or {}).get("fault_overlays", {})
+
+    lines = []
+    for cid, comp in sim.all_components().items():
+        params  = comp.current_parameters()
+        nominal = comp.nominal_parameters()
+
+        # Switch positions — only if they changed since fault snapshot
+        if "is_closed" in nominal:
+            current_closed = params.get("is_closed", nominal["is_closed"])
+            if fault_snapshot is not None:
+                snap_closed = snap_states.get(cid, {}).get("is_closed", current_closed)
+                if current_closed == snap_closed:
+                    pass  # no change since snapshot — skip
+                else:
+                    state = "CLOSED" if current_closed else "OPEN"
+                    lines.append(f"{comp.display_name}: {state}")
+            else:
+                state = "CLOSED" if current_closed else "OPEN"
+                lines.append(f"{comp.display_name}: {state}")
+
+        # Disconnected ports — only if they were connected in the fault snapshot
+        floating = [p.name for p in comp.ports if not p.is_connected()]
+        if floating:
+            if fault_snapshot is not None:
+                snap_comp_ports = snap_ports.get(cid, {})
+                new_floating = [
+                    pname for pname in floating
+                    if snap_comp_ports.get(pname) is not None
+                ]
+                if new_floating:
+                    lines.append(
+                        f"{comp.display_name}: port(s) {new_floating} disconnected (floating)"
+                    )
+            else:
+                lines.append(
+                    f"{comp.display_name}: port(s) {floating} disconnected (floating)"
+                )
+
+        # Fault overlays — only if they changed since fault snapshot
+        elif comp.has_fault():
+            if fault_snapshot is not None:
+                if dict(comp._fault_overlay) != snap_ovls.get(cid, {}):
+                    lines.append(f"{comp.display_name}: degraded — {comp._fault_overlay}")
+            else:
+                lines.append(f"{comp.display_name}: degraded — {comp._fault_overlay}")
+
+    if not lines:
+        return "No circuit-level changes introduced by diagnostics."
+    return "\n".join(f"  • {l}" for l in lines)
+
+
+# Action IDs available to the NL agent during ordinary diagnosis.
+# Repair/reconnect actions are excluded: the agent has no way to know the
+# correct node IDs, and spurious failed reconnect attempts confuse the
+# diagnostic assistant.
+_DIAGNOSTIC_ALLOWED_ACTIONS: set[str] = {
+    "observe_component",
+    "measure_voltage",
+    "open_switch",
+    "close_switch",
+    "test_continuity",
+    "test_diode",
+    "inspect_connections",
+    "invert_enclosure",
+    "restore_enclosure",
+    "open_peephole",
+    "close_peephole",
+    "replace_component",
+    "adjust_potentiometer",
+    "disconnect_cable",
+    # reconnect_cable, degrade_component, force_switch are intentionally absent
+}
 
 
 class ServiceAgentSpiceSim(ServiceAgent):
@@ -40,6 +128,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
         super().__init__(configuration)
         self.patience_level = configuration.MAX_NUMBER_OF_ROUNDS - 1
         self.annoyance_level = 0
+        # Component IDs that have already been repaired in a previous "partial"
+        # verification and must not be reset when restoring the fault snapshot.
+        self._repaired_comp_ids: set[str] = set()
 
     @property
     def description(self) -> str:
@@ -63,8 +154,11 @@ class ServiceAgentSpiceSim(ServiceAgent):
         """
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
-        narrative, cost = await asyncio.to_thread(
-            nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system
+        system.simulated_system.add_logger(self.logger)
+        self.logger.debug(f"Added ServiceAgentSpiceSim own logger to the simulated_system. Spice circuits just before simulation should now appear in the logs")
+        narrative, cost, _, _ = await asyncio.to_thread(
+            nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system,
+            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS,
         )
         self.logger.info(
             f"Initial simulation observation "
@@ -85,17 +179,25 @@ class ServiceAgentSpiceSim(ServiceAgent):
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
         nl_prompt = action.description or action.get_name()
-        narrative, sim_cost = await asyncio.to_thread(nl_run, nl_prompt, system.simulated_system)
+        narrative, sim_cost, actions, results = await asyncio.to_thread(
+            nl_run, nl_prompt, system.simulated_system,
+            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS,
+        )
 
+        self.logger.info(f"action parsed from text input: {actions}")
+        self.logger.info(f"results from the simualion: {[result for action, result in results]}")
+        fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
+        state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
+        full_outcome = f"{narrative}\nCurrent persistent circuit state:\n{state_summary}"
         self.logger.info(
             f"Executed '{action.get_name()}' via simulation | "
             f"kg_cost={action.get_cost()} | "
             f"sim_time={sim_cost.time:.1f}s | "
             f"equipment={sim_cost.equipment} | "
             f"resources={sim_cost.resources_consumed} | "
-            f"outcome: {narrative}"
+            f"outcome: {full_outcome}"
         )
-        return DiagnosticActionResult(action=action, outcome=narrative, precise_action_cost=sim_cost.time)
+        return DiagnosticActionResult(action=action, outcome=full_outcome, precise_action_cost=sim_cost.time)
 
     async def verify_hypothesis(
         self,
@@ -104,51 +206,116 @@ class ServiceAgentSpiceSim(ServiceAgent):
         root_cause_description: Optional[RootCauseDescription],
     ) -> HypothesisVerificationResult:
         """
-        Ask nl_interface to attempt to repair/replace the suspected components
-        and report whether the system is restored.
+        Verify a hypothesis by directly repairing the suspected components in
+        the simulation and checking whether the output devices light up.
 
-        The prompt instructs the simulation to output exactly one of the
-        keywords 'correct', 'partial', or 'wrong' so that outcome parsing
-        is unambiguous.
+        No NL call is made: the outcome is determined entirely from simulation
+        state, independent of any narrative feedback.
         """
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
 
+        from diagnosable_systems_simulation.world.affordances import Affordance
+
+        sim = system.simulated_system
+        fault_snapshot = getattr(sim, "_fault_snapshot", None)
+
+        # --- Resolve hypothesis text → component IDs via the NL interface ---
+        # The NL agent maps the free-text suspected-component description to a
+        # concrete component ID by selecting the "verify_repair" action.
+        # This sidesteps any name-mismatch between what the diagnostic assistant
+        # writes and the actual component display names in the simulation.
         components_str = ", ".join(hypothesis.suspected_components)
-        verify_prompt = (
-            f"Attempt to repair or replace the following suspected faulty components: "
+        verify_map_prompt = (
+            f"The technician suspects a fault in the following component(s): "
             f"{components_str}. "
-            "After the repair attempt, observe the system state carefully. "
-            "If the system function is fully restored, write exactly 'correct'. "
-            "If at least one of the named components was indeed faulty and has been "
-            "replaced/repaired but the system is still not working, write exactly 'partial'. "
-            "If the repair attempt had no effect and the system is still broken, "
-            "write exactly 'wrong'."
+            f"Identify the best matching component(s) in the system and call "
+            f"verify_repair on each one."
         )
-        narrative, sim_cost = await asyncio.to_thread(
-            nl_run, verify_prompt, system.simulated_system
+        _, sim_cost, entries, _ = await asyncio.to_thread(
+            nl_run, verify_map_prompt, sim,
+            self.configuration.LLM_ASSISTANT_MODEL, {"verify_repair"},
+        )
+        candidate_ids: set[str] = {
+            entry["subject"] for entry in entries
+            if entry.get("action_id") == "verify_repair" and entry.get("subject")
+        }
+
+        # Fallback: if the NL agent produced no mapping, try all broken components.
+        if not candidate_ids:
+            candidate_ids = {
+                cid for cid, c in sim.all_components().items()
+                if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
+                or c.has_fault()
+            }
+            self.logger.warning(
+                f"verify_hypothesis: NL mapping produced no candidates for "
+                f"{hypothesis.suspected_components}; falling back to all broken: {candidate_ids}"
+            )
+
+        # --- Test: repair candidates, simulate, check lamps ------------------
+        lamp_on = await asyncio.to_thread(
+            sim.repair_component,
+            candidate_ids,
+            already_repaired_ids=self._repaired_comp_ids,
         )
 
-        narrative_lower = narrative.lower()
-        if "correct" in narrative_lower:
+        # After repair_component the circuit is back in the fault state.
+        still_broken_ids = {
+            cid for cid, c in sim.all_components().items()
+            if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
+            or c.has_fault()
+        }
+        actually_faulty = candidate_ids & still_broken_ids
+
+        # --- Determine outcome -----------------------------------------------
+        if lamp_on:
             outcome = "correct"
-        elif "partial" in narrative_lower:
+        elif actually_faulty:
             outcome = "partial"
         else:
             outcome = "wrong"
 
+        # --- Persist confirmed repairs ----------------------------------------
+        if outcome in ("correct", "partial"):
+            self._repaired_comp_ids.update(actually_faulty)
+            if fault_snapshot is not None:
+                sim.restore_snapshot(fault_snapshot, exclude_ids=self._repaired_comp_ids)
+
+        # --- Build narrative --------------------------------------------------
+        candidate_names = [
+            sim.component(cid).display_name
+            for cid in candidate_ids if cid in still_broken_ids
+        ] or list(hypothesis.suspected_components)
+        if outcome == "correct":
+            narrative = (
+                f"Repaired {candidate_names}. All output devices are now lit: "
+                f"system fully restored."
+            )
+        elif outcome == "partial":
+            narrative = (
+                f"Confirmed faulty: {candidate_names}. Repaired them, but the "
+                f"system is still not working — further faults remain."
+            )
+        else:
+            narrative = (
+                f"Repair attempt on {list(hypothesis.suspected_components)} had no "
+                f"effect. The suspected components were not found to be faulty."
+            )
+
         self.logger.info(
             f"Hypothesis verification via simulation | "
             f"suspected={hypothesis.suspected_components} | "
+            f"candidate_ids={candidate_ids} | "
             f"outcome='{outcome}' | "
-            f"sim_time={sim_cost.time:.1f}s | "
+            f"lamp_on={lamp_on} | "
             f"narrative: {narrative}"
         )
         return HypothesisVerificationResult(
             hypothesis=hypothesis,
             outcome=outcome,
             narrative=narrative,
-            cost=HYPOTHESIS_VERIFICATION_COST,
+            cost=sim_cost.time,
         )
 
     async def decide_finish(

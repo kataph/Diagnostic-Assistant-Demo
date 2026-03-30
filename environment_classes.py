@@ -22,7 +22,7 @@ ACTION_COST_MAP = {
 HYPOTHESIS_VERIFICATION_COST: int = 120
 
 class SystemDescription(BaseModel):
-    model_config = ConfigDict(frozen=False)   # mutable, so that the simulated system can change
+    model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
     text_input: str
     file_id: str | None = None
     simulated_system: DiagnosableSystem | None = None
@@ -174,9 +174,13 @@ class RootCauseDescription(BaseModel):
                 (f"\nnotes:\n{self.notes}" if self.notes else ""))
 
     def one_liner_repr(self):
-        return (f"root cause: {self.root_cause_description_proper} " +
-                (f"symptoms: '{self.symptoms_descriptions}' " if self.symptoms_descriptions else "") +
-                (f"notes: '{self.notes}'" if self.notes else ""))
+        symptoms_str = (
+            " | ".join(s.simple_string() for s in self.symptoms_descriptions)
+            if self.symptoms_descriptions else ""
+        )
+        return (f"root cause: '{self.root_cause_description_proper}'" +
+                (f" symptoms/observable manifestantions: '{symptoms_str}'" if symptoms_str else "") +
+                (f" notes: '{self.notes}'" if self.notes else ""))
 
     def __str__(self):
         return self.__repr__()
@@ -455,13 +459,17 @@ async def run_diagnostic_scenario(
     saboteur: Saboteur,
     service_agent: ServiceAgent,
     assistant: DiagnosticAssistant,
-    scenario_logger: logging.Logger
+    scenario_logger: logging.Logger,
+    chat_log=None,
 ) -> None:
     scenario_logger.info(
         f"A diagnostic scenario has been started with a saboteur of type {saboteur.description}, a service agent of type {service_agent.description}, and an assistant of type {assistant.description}")
 
     # 1) Sabotage phase
     sabotage_root = await saboteur.sabotage(system)
+
+    if chat_log and sabotage_root:
+        chat_log.saboteur(sabotage_root.one_liner_repr())
 
     # 2) Initial observations
     if not sabotage_root or not sabotage_root.symptoms_descriptions:
@@ -470,6 +478,10 @@ async def run_diagnostic_scenario(
         initial_obs = [Observation(description=symp.simple_string(
             )) for symp in sabotage_root.symptoms_descriptions]
     scenario_logger.info(f"Initial observations: {initial_obs}")
+
+    if chat_log:
+        obs_lines = "\n".join(f"• {o.description}" for o in initial_obs)
+        chat_log.system(f"Initial observations:\n{obs_lines}")
 
     await assistant.setup(initial_obs)
     scenario_logger.info(
@@ -484,6 +496,8 @@ async def run_diagnostic_scenario(
         suggestion = await assistant.suggest_action()
 
         if isinstance(suggestion, DiagnosticFaultHypothesis):
+            if chat_log:
+                chat_log.assistant_hypothesis(suggestion.suspected_components, suggestion.explanation)
             # Assistant is declaring a fault hypothesis — service agent verifies it.
             start = perf_counter()
             verification = await service_agent.verify_hypothesis(system, suggestion, sabotage_root)
@@ -494,6 +508,8 @@ async def run_diagnostic_scenario(
                 f"Hypothesis {suggestion.suspected_components} verified: "
                 f"outcome='{verification.outcome}' | {verification.narrative}"
             )
+            if chat_log:
+                chat_log.service_verification(verification.outcome, verification.narrative)
             await assistant.record_hypothesis_outcome(suggestion, verification)
 
             if verification.outcome == "correct":
@@ -504,6 +520,8 @@ async def run_diagnostic_scenario(
             # service agent can stop early (patience) or continue.
 
         elif isinstance(suggestion, DiagnosticAction):
+            if chat_log:
+                chat_log.assistant_action(suggestion.type, suggestion.target, suggestion.description or "")
             start = perf_counter()
             last_outcome = await service_agent.execute_action(system, suggestion, sabotage_root)
             end = perf_counter()
@@ -514,6 +532,8 @@ async def run_diagnostic_scenario(
                 if last_outcome.precise_action_cost is not None
                 else last_outcome.action.get_cost()
             )
+            if chat_log:
+                chat_log.service_result(suggestion.get_name(), last_outcome.outcome)
             await assistant.record_outcome(last_outcome)
 
         else:  # suggestion is None
@@ -546,6 +566,11 @@ async def run_diagnostic_scenario(
         f"Average time: {sum(time_vector)/len(time_vector) if time_vector else 0}")
     scenario_logger.debug(
         f"Diagnostic memory: {assistant.state.diagnostic_scenario_memory} ")
+
+    if chat_log:
+        rounds = len(cost_vector)
+        total  = sum(cost_vector)
+        chat_log.close(f"{rounds} round{'s' if rounds != 1 else ''} · total cost {total:.0f}")
 
     # print("\nFull assistant state:")
     # print(assistant.state.model_dump(indent=2))

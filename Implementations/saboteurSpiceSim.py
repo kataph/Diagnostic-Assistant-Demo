@@ -44,10 +44,6 @@ class SaboteurSpiceSim(Saboteur):
             )
         system_tag, builder = _BUILDERS[system_name]
 
-        # Build a fresh simulation instance and attach it
-        sim = builder()
-        description.simulated_system = sim
-
         # Select scenario
         simulatable = [s for s in SCENARIOS if s.system_name == system_tag and s.fault_fns is not None]
         if not simulatable:
@@ -64,12 +60,25 @@ class SaboteurSpiceSim(Saboteur):
         else:
             scenario = random.choice(simulatable)
 
+        # Build a fresh simulation instance and attach it
+        sim = builder(extra_tools=scenario.world_context.tools_in_hand)
+        description.simulated_system = sim
+
+        # Capture the nominal output (before any faults) so verify_hypothesis
+        # can check whether output devices are lit after a repair.
+        sim.simulate()
+        sim._nominal_emitting_light = sim.last_result.emitting_light
+
         # Apply fault injections
         for fn in scenario.fault_fns:  # type: ignore[union-attr]
             fn(sim)
 
+        # Snapshot the post-fault state so the service agent can reset to it
+        # before hypothesis verification (undoing diagnostic side-effects).
+        sim._fault_snapshot = sim.snapshot()
+
         self.logger.info(
             f"SaboteurSpiceSim: injected scenario {scenario.id} "
-            f"({scenario.root_cause.one_liner_repr()}) into {system_name}"
+            f"({scenario.root_cause.one_liner_repr()}) into {system_name} by executiong the actions {[fn.__name__ for fn in scenario.fault_fns]}"
         )
         return scenario.root_cause

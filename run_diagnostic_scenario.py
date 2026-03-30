@@ -140,12 +140,19 @@ configuration = parse_configuration()
 def get_vision_file_id(file_path, client):
     if not file_path:
         return None
-    with open(file_path, "rb") as file_content:
-        result = client.files.create(
-            file=file_content,
-            purpose="vision",
+    try:
+        with open(file_path, "rb") as file_content:
+            result = client.files.create(
+                file=file_content,
+                purpose="vision",
+            )
+        return result.id
+    except Exception as exc:
+        logging.warning(
+            f"Could not upload diagram {file_path!r} to the vision API "
+            f"({type(exc).__name__}: {exc}). Proceeding without diagram."
         )
-    return result.id
+        return None
 
 
 with open(configuration.TEXT_INPUT_FILE) as f:
@@ -210,8 +217,10 @@ scenario_logger = logging.getLogger("orchestrator")
 scenario_logger.setLevel(configuration.LOG_LEVEL)
 scenario_logger.addHandler(configuration.get_file_handler())
 
+chat_log = configuration.get_chat_log()
+
 asyncio.run(run_diagnostic_scenario(system, saboteur,
-            service_agent, assistant, scenario_logger))
+            service_agent, assistant, scenario_logger, chat_log=chat_log))
 
 # clear; python -m run_diagnostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM
 

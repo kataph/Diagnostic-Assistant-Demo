@@ -53,6 +53,7 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
                 "inspect without tools).\n"
                 "  - action_target: the component to act on.\n"
                 "  - action_description: a brief natural-language description of the action.\n"
+                "  - suspected_components: must be left None or empty in this case.\n"
                 f"  Action costs by type: Replace={ACTION_COST_MAP['Replace']}, "
                 f"Adjust={ACTION_COST_MAP['Adjust']}, Test={ACTION_COST_MAP['Test']}, "
                 f"Observe={ACTION_COST_MAP['Observe']}.\n\n"
@@ -80,7 +81,7 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
     async def record_outcome(self, last_outcome) -> None:
         await super().record_outcome(last_outcome)
         self.state.conversation_history = get_updated_conversation(
-            self.state.conversation_history, f"Someone executed a (additional) diagnostic action on the system. The action (type, target_component, description, outcome) was: \nTYPE: {last_outcome.action.type},\nTARGET: {last_outcome.action.target},\nDESCRIPTION: {last_outcome.action.description},\nRESULT: {last_outcome.outcome}.\n")
+            self.state.conversation_history, f"Someone executed a (additional) diagnostic action on the system. The action (type, target_component, description, outcome) was: \nTYPE: {last_outcome.action.type},\nTARGET: {last_outcome.action.target},\nDESCRIPTION: {last_outcome.action.description},\nRESULT: {last_outcome.outcome}\n")
 
     async def suggest_action(self) -> DiagnosticAction | DiagnosticFaultHypothesis:
         raw: DiagnosticSuggestion = await possibly_cached_runner_run(
@@ -89,8 +90,8 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
             cached=self.configuration.USE_CACHE,
         )
         self.logger.debug(
-            f"INPUT: \n{format_conversation_history(self.state.conversation_history)}\n")
-        self.logger.info(f"OUTPUT: \n{str(raw)}\n\n")
+            f"INPUT [tail only with new content. Full content is concatenation of all previous log entries]: \n{format_conversation_history([self.state.conversation_history[-1]])}\n")
+        self.logger.info(f"OUTPUT: {str(raw)}")
         if raw.suggestion_type == "action":
             return DiagnosticAction(
                 type=raw.action_type,

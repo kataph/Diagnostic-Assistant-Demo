@@ -18,7 +18,7 @@ from typing import Callable, Optional
 from diagnosable_systems_simulation.actions.fault_actions import (
     DegradeComponent, DisconnectCable, ForceSwitch, ReconnectCable, ShortCircuit,
 )
-from diagnosable_systems_simulation.systems.base_system import DiagnosableSystem
+from diagnosable_systems_simulation.systems.base_system import DiagnosableSystem, WorldContext
 
 from environment_classes import RootCauseDescription, SymptomDescription, SymptomDescriptions
 
@@ -30,6 +30,7 @@ class Scenario:
     id: int
     system_name: str
     root_cause: RootCauseDescription
+    world_context: WorldContext
     fault_fns: Optional[list[FaultFn]] = field(default=None)
 
 
@@ -51,8 +52,8 @@ def _apply(sys: DiagnosableSystem, action, targets: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _disconnect_ctrl_cable_out_pos(sys: DiagnosableSystem) -> None:
-    """Detach the output cable of the switch, breaking the ctrl→load path."""
-    _apply(sys, DisconnectCable(), {"subject": sys.component("ctrl_cable_out_pos")})
+    """Detach the switch-side connector (port 'p') of the ctrl→load positive cable."""
+    _apply(sys, DisconnectCable(port_names=["p"]), {"subject": sys.component("ctrl_cable_out_pos")})
 
 
 def _burn_main_bulb(sys: DiagnosableSystem) -> None:
@@ -115,6 +116,30 @@ def _short_psu_output_and_discharge(sys: DiagnosableSystem) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fault functions — 10-cubes system
+# ---------------------------------------------------------------------------
+
+def _disconnect_ctrl3_cable_in_pos(sys: DiagnosableSystem) -> None:
+    """Detach ctrl3's positive input cable, breaking the circuit from ctrl3 onwards."""
+    _apply(sys, DisconnectCable(), {"subject": sys.component("ctrl3_cable_in_pos")})
+
+
+def _disconnect_ctrl6_cable_in_pos(sys: DiagnosableSystem) -> None:
+    """Detach ctrl6's positive input cable, breaking the circuit from ctrl6 onwards."""
+    _apply(sys, DisconnectCable(), {"subject": sys.component("ctrl6_cable_in_pos")})
+
+
+def _remove_all_ctrl_green_leds(sys: DiagnosableSystem) -> None:
+    """Simulate removal of all 8 control-module green LEDs by open-circuiting them."""
+    for i in range(1, 9):
+        _apply(
+            sys,
+            DegradeComponent({"forward_voltage": 1e9}),
+            {"subject": sys.component(f"ctrl{i}_green_led")},
+        )
+
+
+# ---------------------------------------------------------------------------
 # Scenario catalogue
 # ---------------------------------------------------------------------------
 
@@ -129,6 +154,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is off"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_disconnect_ctrl_cable_out_pos],
     ),
     Scenario(
@@ -141,6 +167,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is off"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_burn_main_bulb],
     ),
     Scenario(
@@ -153,6 +180,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is off"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_deplete_battery],
     ),
     Scenario(
@@ -165,6 +193,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is on"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_invert_battery],
     ),
     Scenario(
@@ -177,6 +206,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is on"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_cross_psu_ctrl_cables],
     ),
     Scenario(
@@ -189,6 +219,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is off"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_force_switch_open],
     ),
     Scenario(
@@ -201,7 +232,8 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when the battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,  # 10-cubes system not yet in simulation
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_deplete_battery],
     ),
     Scenario(
         id=8, system_name="10_cubes",
@@ -213,7 +245,8 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_disconnect_ctrl3_cable_in_pos],
     ),
     Scenario(
         id=9, system_name="10_cubes",
@@ -225,7 +258,8 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_disconnect_ctrl3_cable_in_pos, _remove_all_ctrl_green_leds],
     ),
     Scenario(
         id=10, system_name="10_cubes",
@@ -237,19 +271,21 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_disconnect_ctrl6_cable_in_pos, _remove_all_ctrl_green_leds],
     ),
     Scenario(
         id=11, system_name="10_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimiter or other tools at its disposal to take electric measurements.",
+            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimeter or other tools at its disposal to take electric measurements.",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The led on the power supply module is on"),
                 SymptomDescription("All the leds on the control modules are missing"),
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={}),
+        fault_fns=[_disconnect_ctrl6_cable_in_pos, _remove_all_ctrl_green_leds],
     ),
     Scenario(
         id=12, system_name="3_cubes",
@@ -261,6 +297,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The red led on top of the control module is on"),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=[_cross_psu_ctrl_cables, _disconnect_ctrl_cable_out_pos],
     ),
     Scenario(
@@ -273,7 +310,8 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_disconnect_ctrl3_cable_in_pos, _deplete_battery],
     ),
     Scenario(
         id=14, system_name="10_cubes",
@@ -285,7 +323,8 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position"),
             ])
         ),
-        fault_fns=None,
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
+        fault_fns=[_short_psu_output_and_discharge],
     ),
     Scenario(
         id=15, system_name="ambient_light_sensor",
@@ -296,6 +335,7 @@ SCENARIOS: list[Scenario] = [
                 SymptomDescription("The lamp turns off about every 20 seconds for about half a second. Then it turns on again. This keeps happening."),
             ])
         ),
+        world_context=WorldContext(tools_in_hand={'multimeter'}),
         fault_fns=None,
     ),
 ]

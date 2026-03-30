@@ -1,19 +1,33 @@
+""" Executes multiple times the given scenarios with the given input parameters, and records output.
+python -m run_many_scenarios
+"""
+
 import argparse
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 import re
 import statistics
 
-from Implementations.saboteurFixedScenario import SCENARIOS
+from Implementations.scenarios import SCENARIOS
 from Utilities.formatting import to_PascalCase
 
 
-def run_scenario_multiple_times(n_runs: int, base_dir: Path, forced_scenario: int, assistant: str, rounds: int, system: str, service: str) -> None:
+def run_scenario_multiple_times(
+    n_runs: int,
+    base_dir: Path,
+    forced_scenario: int,
+    assistant: str,
+    rounds: int,
+    system: str,
+    service: str,
+    saboteur: str = "FixedScenario",
+    assistant_model: str = "gpt-4.1",
+) -> None:
     """
     Run the diagnostic scenario n_runs times.
     """
-    # Use the same Python interpreter that runs this script
     python_executable = sys.executable
 
     cmd = [
@@ -25,9 +39,9 @@ def run_scenario_multiple_times(n_runs: int, base_dir: Path, forced_scenario: in
         "--diagram",
         f"Knowledge_sources/Unstructured_knowledge_sources/{system}/{system}_schematics.png",
         "--LLM-assistant-model",
-        "gpt-5.2",
+        assistant_model,
         "--NS-assistant-model",
-        "gpt-5.2",
+        assistant_model,
         "--forced-scenario",
         str(forced_scenario),
         "--log-level",
@@ -43,7 +57,7 @@ def run_scenario_multiple_times(n_runs: int, base_dir: Path, forced_scenario: in
         "--retrieval-folder",
         f"Knowledge_sources/Unstructured_knowledge_sources/{system}",
         "--saboteur",
-        "FixedScenario",
+        saboteur,
         "--service",
         service,
         "--assistant",
@@ -57,13 +71,11 @@ def run_scenario_multiple_times(n_runs: int, base_dir: Path, forced_scenario: in
         result = subprocess.run(cmd, cwd=base_dir)
         if result.returncode != 0:
             print(f"Run {i + 1} failed with return code {result.returncode}.")
-            # You can choose to break here if failures should stop the loop
-            # break
 
 
 def get_last_n_log_files(log_dir: Path, n: int):
     """
-    Return the last n files in log_dir, ordered by modification time (newest first).
+    Return the last n files in log_dir, ordered by name (newest first).
     """
     if not log_dir.exists() or not log_dir.is_dir():
         raise FileNotFoundError(f"Log directory not found: {log_dir}")
@@ -72,62 +84,50 @@ def get_last_n_log_files(log_dir: Path, n: int):
     if not files:
         raise FileNotFoundError(f"No log files found in directory: {log_dir}")
 
-    # files_sorted = sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
     files_sorted = sorted(files, key=lambda p: p.name, reverse=True)
     return files_sorted[:n]
 
 
-def parse_cost_and_length_from_log(log_path: Path) -> tuple[int, int]:
+def parse_cost_and_length_from_log(log_path: Path) -> tuple[float, int]:
     """
-    Parse a cost vector of the form:
-    Cost vector: [3, 3, 5]
-    and return the sum of its entries and the length of the vector.
+    Parse a cost vector line such as  "Cost vector: [3, 3, 5]"
+    and return (sum, length).
     """
     text = log_path.read_text(encoding="utf-8", errors="ignore")
 
-    # Regex to find the cost vector line
     match = re.search(r"Cost vector:\s*\[([^\]]+)\]", text)
     if not match:
         raise ValueError(f"No cost vector found in log file: {log_path}")
 
     vector_str = match.group(1)
-    # Split on commas and convert to integers
     try:
-        values = [int(x.strip()) for x in vector_str.split(",")]
+        values = [float(x.strip()) for x in vector_str.split(",")]
     except ValueError as e:
         raise ValueError(f"Failed to parse cost vector in {log_path}: {e}")
 
     return sum(values), len(values)
 
 
-def parse_time_from_log(log_path: Path):
+def parse_time_from_log(log_path: Path) -> float:
     """
-    Parse a time vector of the form:
-    Time vector: [1.2, 2.3]
-    and return the average value of its entries.
+    Parse a time vector line and return the average.
     """
     text = log_path.read_text(encoding="utf-8", errors="ignore")
 
-    # Regex to find the cost vector line
     match = re.search(r"Time vector:\s*\[([^\]]+)\]", text)
     if not match:
         raise ValueError(f"No time vector found in log file: {log_path}")
 
     vector_str = match.group(1)
-    # Split on commas and convert to integers
     try:
         values = [float(x.strip()) for x in vector_str.split(",")]
     except ValueError as e:
         raise ValueError(f"Failed to parse time vector in {log_path}: {e}")
 
-    return sum(values)/len(values) if len(values) > 0 else 0
+    return sum(values) / len(values) if values else 0.0
 
 
 def compute_stats_from_logs(log_files):
-    """
-    For a list of log file paths, compute mean and standard deviation
-    of the total costs (sum of cost vector entries in each file).
-    """
     costs = []
     time_averages = []
     lengths = []
@@ -144,55 +144,86 @@ def compute_stats_from_logs(log_files):
     mean_cost = statistics.mean(costs)
     mean_action_number = statistics.mean(lengths)
     mean_time = statistics.mean(time_averages)
-
     std_cost = statistics.stdev(costs) if len(costs) > 1 else 0.0
-    std_time = statistics.stdev(time_averages) if len(
-        time_averages) > 1 else 0.0
+    std_time = statistics.stdev(time_averages) if len(time_averages) > 1 else 0.0
     std_action_number = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
 
     return mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number
 
 
-def append_results(out_path: Path, mean_cost: float, std_cost: float, mean_time: float, std_time: float, n_runs: int, forced_scenario: int, system: str, log_files_interval: str, mean_action_number: float, std_action_number: float):
-    """
-    Append mean and standard deviation to out.txt.
-    Format: n_runs forced_scenario mean std
-    """
+def append_results(
+    out_path: Path,
+    mean_cost: float,
+    std_cost: float,
+    mean_time: float,
+    std_time: float,
+    n_runs: int,
+    forced_scenario: int,
+    system: str,
+    log_files_interval: str,
+    mean_action_number: float,
+    std_action_number: float,
+) -> None:
     with out_path.open("a", encoding="utf-8") as f:
-        # number_of_runs, scenario_id, system_id, mean_action_cost, std_action_cost, mean_suggestion_time, std_suggestion_time, mean_action_number, std_action_number, log_files_interval
-        f.write(f"{n_runs}\t{forced_scenario}\t{system}\t{mean_cost:.6f}\t{std_cost:.6f}\t{mean_time:.6f}\t{std_time:.6f}\t{mean_action_number:.6f}\t{std_action_number:.6f}\t{log_files_interval}\n")
+        f.write(
+            f"{n_runs}\t{forced_scenario}\t{system}\t"
+            f"{mean_cost:.6f}\t{std_cost:.6f}\t"
+            f"{mean_time:.6f}\t{std_time:.6f}\t"
+            f"{mean_action_number:.6f}\t{std_action_number:.6f}\t"
+            f"{log_files_interval}\n"
+        )
 
 
-def main_args(num_runs, base_dir, forced_scenario, assistant, rounds, skip_runs: bool, log_dir, out_file, service):
+def write_separator(out_path: Path, label: str) -> None:
+    """Write a labelled separator line to out.txt."""
+    with out_path.open("a", encoding="utf-8") as f:
+        f.write(f"\n# {'=' * 30} {label} {'=' * 30}\n")
 
 
-    target_scenarios = [scenario for scenario in SCENARIOS if scenario[0] == forced_scenario]
+def main_args(
+    num_runs: int,
+    base_dir: Path,
+    forced_scenario: int,
+    assistant: str,
+    rounds: int,
+    skip_runs: bool,
+    log_dir: Path,
+    out_file: Path,
+    service: str,
+    saboteur: str = "FixedScenario",
+    assistant_model: str = "gpt-4.1",
+) -> None:
+
+    target_scenarios = [s for s in SCENARIOS if s.id == forced_scenario]
     if len(target_scenarios) != 1:
-        raise ValueError(f"The scenarios corresponding to id {forced_scenario} are {len(target_scenarios)}. It should be that it is exactly 1!")
-    _, system, _ = target_scenarios[0]
+        raise ValueError(
+            f"Expected exactly 1 scenario with id={forced_scenario}, "
+            f"found {len(target_scenarios)}."
+        )
+    system = target_scenarios[0].system_name
 
     if not skip_runs:
         run_scenario_multiple_times(
-            num_runs, base_dir, forced_scenario, assistant, rounds, system, service)
+            num_runs, base_dir, forced_scenario, assistant, rounds,
+            system, service, saboteur, assistant_model
+        )
 
-    # Get last n log files and compute statistics
     log_files = get_last_n_log_files(log_dir, num_runs)
     log_files_interval = log_files[0].name + " --> " + log_files[-1].name
-    mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number = compute_stats_from_logs(
-        log_files)
-
-    append_results(out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
-                   forced_scenario, system, log_files_interval, mean_action_number, std_action_number)
+    mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number = (
+        compute_stats_from_logs(log_files)
+    )
+    append_results(
+        out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
+        forced_scenario, system, log_files_interval,
+        mean_action_number, std_action_number,
+    )
 
     print(f"Processed {len(log_files)} log files.")
-    print(f"Forced scenario: {forced_scenario}")
-    print(f"System: {system}")
-    print(f"Mean total cost: {mean_cost:.6f}")
-    print(f"Std dev of total cost: {std_cost:.6f}")
-    print(f"Mean suggestion time: {mean_time:.6f}")
-    print(f"Std dev of suggestion time: {std_time:.6f}")
-    print(f"Mean action number: {mean_action_number:.6f}")
-    print(f"Std dev of action number: {std_action_number:.6f}")
+    print(f"Forced scenario: {forced_scenario} | System: {system}")
+    print(f"Mean total cost: {mean_cost:.6f}  (std {std_cost:.6f})")
+    print(f"Mean action number: {mean_action_number:.6f}  (std {std_action_number:.6f})")
+    print(f"Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
     print(f"Results appended to: {out_file}")
 
 
@@ -200,96 +231,59 @@ def main():
     parser = argparse.ArgumentParser(
         description="Run diagnostic scenario multiple times and compute cost statistics."
     )
-    parser.add_argument(
-        "-n",
-        "--num-runs",
-        type=int,
-        required=True,
-        help="Number of times to run the diagnostic scenario.",
-    )
-    parser.add_argument(
-        "--forced-scenario",
-        type=int,
-        required=True,
-        help="Scenario identifier (int >= 0, see the Fixed scenario assistant class for the scenarios array).",
-    )
-    parser.add_argument(
-        "--rounds",
-        type=int,
-        required=True,
-        help="Max number of rounds",
-    )
-    parser.add_argument(
-        "--assistant",
-        type=str,
-        required=True,
-        help="Assistant type for the scenario",
-    )
-    parser.add_argument(
-        "--service",
-        type=str,
-        required=True,
-        # default="LLM",
-        help="Service agent type for the scenario",
-    )
-    parser.add_argument(
-        "--skip-runs",
-        action="store_true",
-        help="Skip running the scenario and only analyze the last n log files.",
-    )
+    parser.add_argument("-n", "--num-runs", type=int, required=True,
+                        help="Number of times to run the scenario.")
+    parser.add_argument("--forced-scenario", type=int, required=True,
+                        help="ID of the scenario to run (must be >= 0).")
+    parser.add_argument("--rounds", type=int, required=True,
+                        help="Maximum number of diagnostic rounds per run.")
+    parser.add_argument("--assistant", type=str, required=True,
+                        help="Diagnostic assistant type (e.g. 'LLM', 'KGO').")
+    parser.add_argument("--assistant_model", type=str, default="gpt-4.1",
+                        help="Model exploited by the assistant (default: 'gpt-4.1').")
+    parser.add_argument("--service", type=str, required=True,
+                        help="Service agent type (e.g. 'SpiceSim', 'Human', 'Mock').")
+    parser.add_argument("--saboteur", type=str, default="FixedScenario",
+                        help="Saboteur type used to inject faults (default: 'FixedScenario').")
+    parser.add_argument("--skip-runs", action="store_true",
+                        help="Skip running the scenario; only parse existing log files.")
     args = parser.parse_args()
 
     if args.forced_scenario < 0:
-        raise ValueError("--forced-scenario must be an integer >= 0")
+        raise ValueError("--forced-scenario must be >= 0")
 
-    # Base directory = directory of this script
     base_dir = Path(__file__).resolve().parent
     log_dir = base_dir / "Logs"
     out_file = base_dir / "out.txt"
 
-    main_args(args.num_runs, base_dir, args.forced_scenario, args.assistant,
-              args.rounds, args.skip_runs, log_dir, out_file, args.service)
+    main_args(
+        args.num_runs, base_dir, args.forced_scenario, args.assistant,
+        args.rounds, args.skip_runs, log_dir, out_file,
+        args.service, args.saboteur, args.assistant_model,
+    )
 
 
 if __name__ == "__main__":
-    # main()
     base_dir = Path(__file__).resolve().parent
     log_dir = base_dir / "Logs"
     out_file = base_dir / "out.txt"
-    # main_args(2, base_dir, 1, "LLM", 10, False, log_dir, out_file) # rapid test
-    # main_args(1, base_dir, 1, "EvidenceKGOptimal", 10, False, log_dir, out_file, "LLM") # rapid test
 
-    # main_args(10, base_dir, 0, "LLM", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 0, "EvidenceKGOptimal",
-    #           10, False, log_dir, out_file)
+    # ── SpiceSim service + LLM assistant ────────────────────────────────────
+    
+    
+    # All scenarios that have simulation support (fault_fns defined).
+    # simulatable_ids = [s.id for s in SCENARIOS if s.fault_fns is not None]
 
-    # # main_args(10, base_dir, 1, "LLM", 10, True, log_dir, out_file, "SpiceSim")
-    # # main_args(10, base_dir, 2, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 3, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 4, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 5, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 6, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 7, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 8, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 9, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 10, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 11, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 12, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 12, "LLM", 8, True, log_dir, out_file)
-    # # main_args(10, base_dir, 1, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-
-    # # main_args(10, base_dir, 2, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 3, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 4, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 5, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 6, "EvidenceKGOptimal",
-    #           10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 7, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 8, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 9, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 10, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 11, "EvidenceKGOptimal", 10, False, log_dir, out_file)
-    # main_args(10, base_dir, 12, "EvidenceKGOptimal",
-    #           10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 13, "LLM", 10, False, log_dir, out_file)
-    # # main_args(10, base_dir, 14, "LLM", 10, False, log_dir, out_file)
+    # for scenario_id in simulatable_ids:
+    #     print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
+    #     main_args(
+    #         10, base_dir, scenario_id, "LLM", 10, False,
+    #         log_dir, out_file, "SpiceSim", "SpiceSim",
+    #     )
+    kwargs = {'num_runs':1, 'base_dir':base_dir, 'forced_scenario':1, 'assistant':"LLM", 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
+    write_separator(
+        out_file,
+        f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    )
+    # main_args(num_runs=2, base_dir=base_dir, forced_scenario=1, assistant="LLM", rounds=10, skip_runs=False, log_dir=log_dir, out_file=out_file, service="SpiceSim", saboteur="SpiceSim", assistant_model="gpt-4.1")
+    main_args(**kwargs)
