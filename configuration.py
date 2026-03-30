@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 from rdflib import URIRef, Namespace
 
+from Utilities.chat_log import ChatLog
+
 
 InterfaceType = Literal["cli", "voice"]
 ZORRO = Namespace("http://www.example.org/zorro/")
@@ -66,9 +68,8 @@ class Configuration:
     )
     LOG_LEVEL: int = 20
 
-    def get_chat_log(self) -> "ChatLog":
+    def get_chat_log(self) -> ChatLog:
         """Create and return a ChatLog writing to the same Logs directory."""
-        from Utilities.chat_log import ChatLog
         os.makedirs(self.CHAT_PATH, exist_ok=True)
         path = os.path.join(self.CHAT_PATH,  self.LOG_FILE + "_CHAT.html")
         return ChatLog(path, session_info=self.LOG_FILE)
