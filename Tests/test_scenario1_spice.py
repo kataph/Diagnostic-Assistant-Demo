@@ -110,17 +110,37 @@ The differences are:
 Another thing to note:
 -wires are modelled as 10mOhm resistors. Important: for some reason modelling
 the with 1uOhm resistance is troublesome (LTspice instead is able to work with the 1uOhm value)"""
-    # 1. Build the system
-    sim = build_three_cubes_system(extra_tools={"multimeter"})
 
+    def _observe_bulb(sim) -> None:
+        obs_result = sim.apply_action(
+        ObserveComponent(),
+        {"subject": sim.component("main_bulb")},
+        )
+        print(f"[observe bulb]    {obs_result}")
+        assert obs_result.success, f"ObserveComponent failed: {obs_result.message}"
+
+        print("\n=== observation record ===")
+        if obs_result.observation is not None:
+            for prop in obs_result.observation.properties:
+                unit = f" {prop.unit}" if prop.unit else ""
+                print(f"  {prop.name}: {prop.value}{unit}")
+        else:
+            print("  (no observation record)")
+    # 1. Build the system 
+    sim = build_three_cubes_system(extra_tools={"multimeter"})
+    
     # 2. Attach a stdout logger so SPICE netlist details appear on the console
     sim.add_logger(_make_stdout_logger())
+    
+    # 3. Observe the bulb
+    _observe_bulb(sim)
 
-    # 3. Inject scenario-1 fault via the canonical fault functions
+    # 4. Inject scenario-1 fault via the canonical fault functions and observe the bulb again
     scenario = next(s for s in SCENARIOS if s.id == 1)
     for fault_fn in scenario.fault_fns:
         fault_fn(sim)
     print(f"\n[fault injection] scenario {scenario.id}: {scenario.root_cause.root_cause_description_proper}")
+    _observe_bulb(sim)
 
     # 4. Open the control switch
     open_result = sim.apply_action(
@@ -130,21 +150,9 @@ the with 1uOhm resistance is troublesome (LTspice instead is able to work with t
     print(f"[open switch]     {open_result}")
     assert open_result.success, f"OpenSwitch failed: {open_result.message}"
 
-    # 5. Observe the main lightbulb
-    obs_result = sim.apply_action(
-        ObserveComponent(),
-        {"subject": sim.component("main_bulb")},
-    )
-    print(f"[observe bulb]    {obs_result}")
-    assert obs_result.success, f"ObserveComponent failed: {obs_result.message}"
-
-    print("\n=== observation record ===")
-    if obs_result.observation is not None:
-        for prop in obs_result.observation.properties:
-            unit = f" {prop.unit}" if prop.unit else ""
-            print(f"  {prop.name}: {prop.value}{unit}")
-    else:
-        print("  (no observation record)")
+    # 5. Observe the main lightbulb again
+    _observe_bulb(sim)
+    
 
 
 if __name__ == "__main__":
