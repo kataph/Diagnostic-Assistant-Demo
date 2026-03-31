@@ -65,7 +65,7 @@ def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
                 )
 
         # Fault overlays — only if they changed since fault snapshot
-        elif comp.has_fault():
+        if comp.has_fault():
             if fault_snapshot is not None:
                 if dict(comp._fault_overlay) != snap_ovls.get(cid, {}):
                     lines.append(f"{comp.display_name}: degraded — {comp._fault_overlay}")

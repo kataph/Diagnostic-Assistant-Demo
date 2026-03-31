@@ -13,7 +13,7 @@ class ServiceAgentMock(ServiceAgent):
     ) -> list[Observation]:
         self.mock_counter = 0
         mock_observations = [Observation(description=chunk) for chunk in system.text_input.split('.')]
-        self.mock_observations_number = len(self.mock_observations)
+        self.mock_observations_number = len(mock_observations)
         return mock_observations
 
     async def execute_action(self, system: SystemDescription, action: DiagnosticAction, root_cause_description: Optional[RootCauseDescription]) -> DiagnosticActionResult:
