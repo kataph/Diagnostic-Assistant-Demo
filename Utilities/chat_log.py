@@ -240,10 +240,23 @@ class ChatLog:
         )
         self._left("assistant", "🤖", "Diagnostic Assistant", body)
 
-    def service_result(self, action_name: str, outcome: str) -> None:
+    def service_result(self, action_name: str, outcome: str, cost: "float | None" = None, cost_breakdown: "list[tuple[str, float]] | None" = None) -> None:
         """Blue right bubble — service agent reporting an action result."""
+        if cost is not None:
+            cost_html = f'<span style="font-size:0.8em;color:#7a9abf;"> · {cost:.0f}s</span>'
+            if cost_breakdown and len(cost_breakdown) > 1:
+                parts = " + ".join(
+                    f"{name.replace('_', ' ')} {t:.0f}s"
+                    for name, t in cost_breakdown
+                )
+                cost_html += (
+                    f'<div style="font-size:0.70em;color:#4a5a6a;margin-top:1px;">'
+                    f'{_e(parts)}</div>'
+                )
+        else:
+            cost_html = ''
         body = (
-            f'<div class="body"><b>{_e(action_name)}</b>\n{_e(outcome)}</div>'
+            f'<div class="body"><b>{_e(action_name)}</b>{cost_html}\n{_e(outcome)}</div>'
         )
         self._right("service", "🔧", "Service Agent", body)
 

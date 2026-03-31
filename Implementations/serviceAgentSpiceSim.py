@@ -84,9 +84,11 @@ def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
 _DIAGNOSTIC_ALLOWED_ACTIONS: set[str] = {
     "observe_component",
     "measure_voltage",
+    "measure_current",
     "open_switch",
     "close_switch",
     "test_continuity",
+    "test_path_continuity",
     "test_diode",
     "inspect_connections",
     "invert_enclosure",
@@ -96,7 +98,8 @@ _DIAGNOSTIC_ALLOWED_ACTIONS: set[str] = {
     "replace_component",
     "adjust_potentiometer",
     "disconnect_cable",
-    # reconnect_cable, degrade_component, force_switch are intentionally absent
+    "reconnect_cable",
+    # degrade_component, force_switch are fault-injection actions — never diagnostic
 }
 
 
@@ -188,7 +191,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.info(f"results from the simualion: {[result for action, result in results]}")
         fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
         state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
-        full_outcome = f"{narrative}\nCurrent persistent circuit state:\n{state_summary}"
+        full_outcome = f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n{state_summary}"
         self.logger.info(
             f"Executed '{action.get_name()}' via simulation | "
             f"kg_cost={action.get_cost()} | "
@@ -197,7 +200,12 @@ class ServiceAgentSpiceSim(ServiceAgent):
             f"resources={sim_cost.resources_consumed} | "
             f"outcome: {full_outcome}"
         )
-        return DiagnosticActionResult(action=action, outcome=full_outcome, precise_action_cost=sim_cost.time)
+        breakdown = [(a.action_id, a.cost.time) for a, _ in results]
+        return DiagnosticActionResult(
+            action=action, outcome=full_outcome,
+            precise_action_cost=sim_cost.time,
+            cost_breakdown=breakdown,
+        )
 
     async def verify_hypothesis(
         self,

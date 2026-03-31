@@ -114,6 +114,7 @@ class DiagnosticActionResult(BaseModel):
     action: DiagnosticAction
     outcome: str
     precise_action_cost: Optional[float] = None
+    cost_breakdown: Optional[list[tuple[str, float]]] = None
     simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
 
     def __str__(self):
@@ -533,7 +534,14 @@ async def run_diagnostic_scenario(
                 else last_outcome.action.get_cost()
             )
             if chat_log:
-                chat_log.service_result(suggestion.get_name(), last_outcome.outcome)
+                chat_log.service_result(
+                    suggestion.get_name(),
+                    last_outcome.outcome,
+                    cost=last_outcome.precise_action_cost
+                    if last_outcome.precise_action_cost is not None
+                    else last_outcome.action.get_cost(),
+                    cost_breakdown=last_outcome.cost_breakdown,
+                )
             await assistant.record_outcome(last_outcome)
 
         else:  # suggestion is None
