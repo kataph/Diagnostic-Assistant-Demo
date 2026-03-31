@@ -188,7 +188,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
 
         self.logger.info(f"action parsed from text input: {actions}")
-        self.logger.info(f"results from the simualion: {[result for action, result in results]}")
+        self.logger.info(f"results from the simulation: {[result for action, result in results]}")
         fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
         state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
         full_outcome = f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n{state_summary}"
