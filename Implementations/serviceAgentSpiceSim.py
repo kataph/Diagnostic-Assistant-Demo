@@ -148,6 +148,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
         system: SystemDescription,
         root_cause_description: Optional[RootCauseDescription],
     ) -> list[Observation]:
+        # Reset per-scenario mutable state so the agent is safe to reuse.
+        self.annoyance_level = 0
+        self._repaired_comp_ids = set()
         """
         Observe the externally visible state of the (already-faulted) simulated
         system and return it as a single Observation.
@@ -263,12 +266,12 @@ class ServiceAgentSpiceSim(ServiceAgent):
 
         # --- Test: repair candidates, simulate, check lamps ------------------
         lamp_on = await asyncio.to_thread(
-            sim.repair_component,
+            sim.test_repair,
             candidate_ids,
             already_repaired_ids=self._repaired_comp_ids,
         )
 
-        # After repair_component the circuit is back in the fault state.
+        # After test_repair the circuit is back in the fault state.
         still_broken_ids = {
             cid for cid, c in sim.all_components().items()
             if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
@@ -288,6 +291,11 @@ class ServiceAgentSpiceSim(ServiceAgent):
         if outcome in ("correct", "partial"):
             self._repaired_comp_ids.update(actually_faulty)
             if fault_snapshot is not None:
+                # test_repair() always restores the circuit to fault state on
+                # exit, so confirmed components are currently faulted again.
+                # Apply the repairs now so that restore_snapshot(exclude_ids)
+                # leaves those components in the repaired state.
+                sim.apply_repairs(self._repaired_comp_ids)
                 sim.restore_snapshot(fault_snapshot, exclude_ids=self._repaired_comp_ids)
 
         # --- Build narrative --------------------------------------------------

@@ -127,16 +127,28 @@ def parse_time_from_log(log_path: Path) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def parse_success_from_log(log_path: Path) -> bool:
+    """
+    Return True if the run ended with a correct hypothesis verification
+    (i.e. outcome='correct' appears in the log), False if the session was
+    exhausted by the patience cap.
+    """
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    return bool(re.search(r"outcome='correct'", text))
+
+
 def compute_stats_from_logs(log_files):
     costs = []
     time_averages = []
     lengths = []
+    successes = []
     for log in log_files:
         total_cost, length = parse_cost_and_length_from_log(log)
         average_time = parse_time_from_log(log)
         costs.append(total_cost)
         lengths.append(length)
         time_averages.append(average_time)
+        successes.append(parse_success_from_log(log))
 
     if not costs:
         raise ValueError("No costs extracted from log files.")
@@ -147,8 +159,9 @@ def compute_stats_from_logs(log_files):
     std_cost = statistics.stdev(costs) if len(costs) > 1 else 0.0
     std_time = statistics.stdev(time_averages) if len(time_averages) > 1 else 0.0
     std_action_number = statistics.stdev(lengths) if len(lengths) > 1 else 0.0
+    success_rate = sum(successes) / len(successes)
 
-    return mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number
+    return mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate
 
 
 def append_results(
@@ -163,6 +176,7 @@ def append_results(
     log_files_interval: str,
     mean_action_number: float,
     std_action_number: float,
+    success_rate: float,
 ) -> None:
     with out_path.open("a", encoding="utf-8") as f:
         f.write(
@@ -170,6 +184,7 @@ def append_results(
             f"{mean_cost:.6f}\t{std_cost:.6f}\t"
             f"{mean_time:.6f}\t{std_time:.6f}\t"
             f"{mean_action_number:.6f}\t{std_action_number:.6f}\t"
+            f"{success_rate:.4f}\t"
             f"{log_files_interval}\n"
         )
 
@@ -210,13 +225,13 @@ def main_args(
 
     log_files = get_last_n_log_files(log_dir, num_runs)
     log_files_interval = log_files[0].name + " --> " + log_files[-1].name
-    mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number = (
+    mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate = (
         compute_stats_from_logs(log_files)
     )
     append_results(
         out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
         forced_scenario, system, log_files_interval,
-        mean_action_number, std_action_number,
+        mean_action_number, std_action_number, success_rate,
     )
 
     print(f"Processed {len(log_files)} log files.")
@@ -224,6 +239,7 @@ def main_args(
     print(f"Mean total cost: {mean_cost:.6f}  (std {std_cost:.6f})")
     print(f"Mean action number: {mean_action_number:.6f}  (std {std_action_number:.6f})")
     print(f"Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
+    print(f"Success rate: {success_rate:.1%}")
     print(f"Results appended to: {out_file}")
 
 
@@ -272,18 +288,22 @@ if __name__ == "__main__":
     
     
     # All scenarios that have simulation support (fault_fns defined).
-    # simulatable_ids = [s.id for s in SCENARIOS if s.fault_fns is not None]
-
-    # for scenario_id in simulatable_ids:
-    #     print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-    #     main_args(
-    #         10, base_dir, scenario_id, "LLM", 10, False,
-    #         log_dir, out_file, "SpiceSim", "SpiceSim",
-    #     )
-    kwargs = {'num_runs':1, 'base_dir':base_dir, 'forced_scenario':1, 'assistant':"LLM", 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-    write_separator(
-        out_file,
-        f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    )
+    simulatable_ids = [s.id for s in SCENARIOS if s.fault_fns is not None]
+    
+    for scenario_id in [1,2,3,4,5,6,7,8,9]:
+        # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
+        num_runs = 10
+        assistant = "LLM"
+        kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
+        write_separator(
+            out_file,
+            f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        )
+        main_args(**kwargs)
+    # kwargs = {'num_runs':1, 'base_dir':base_dir, 'forced_scenario':2, 'assistant':"LLM", 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
+    # write_separator(
+    #     out_file,
+    #     f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    # )
     # main_args(num_runs=2, base_dir=base_dir, forced_scenario=1, assistant="LLM", rounds=10, skip_runs=False, log_dir=log_dir, out_file=out_file, service="SpiceSim", saboteur="SpiceSim", assistant_model="gpt-4.1")
-    main_args(**kwargs)
+    # main_args(**kwargs)

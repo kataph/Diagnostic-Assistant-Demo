@@ -510,7 +510,7 @@ async def run_diagnostic_scenario(
                 f"outcome='{verification.outcome}' | {verification.narrative}"
             )
             if chat_log:
-                chat_log.service_verification(verification.outcome, verification.narrative)
+                chat_log.service_verification(verification.outcome, verification.narrative, cost=verification.cost)
             await assistant.record_hypothesis_outcome(suggestion, verification)
 
             if verification.outcome == "correct":

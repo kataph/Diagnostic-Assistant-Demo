@@ -85,7 +85,7 @@ class ServiceAgentHuman(ServiceAgent):
                 await self.io.prompt("Please reply with 'correct', 'partial', or 'wrong'.")
         narrative = (await self.io.read_line("Describe the outcome: ")).strip()
         self.logger.info(
-            f"Human verified hypothesis {hypothesis.suspected_components}: outcome={answer}"
+            f"Human verified hypothesis {hypothesis.suspected_components}: outcome='{answer}'"
         )
         return HypothesisVerificationResult(
             hypothesis=hypothesis,

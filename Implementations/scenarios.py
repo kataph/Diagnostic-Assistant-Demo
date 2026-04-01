@@ -71,8 +71,20 @@ def _invert_battery(sys: DiagnosableSystem) -> None:
 
 
 def _force_switch_open(sys: DiagnosableSystem) -> None:
-    """Internal open circuit: switch is stuck open regardless of user operation."""
-    _apply(sys, ForceSwitch(is_closed=False), {"subject": sys.component("ctrl_switch")})
+    """
+    Internal open circuit in the switch.
+
+    The switch contact is broken internally: it conducts no current regardless
+    of its mechanical position.  This is modelled by fixing the resistance at
+    roff (the switch's own open-circuit value) via a fault overlay — NOT by
+    forcing is_closed=False.
+
+    As a result the switch LOOKS closed to an observer when the user closes it,
+    but voltage/continuity measurements will reveal it never conducts.  This is
+    the physically correct representation of an internal contact failure.
+    """
+    sw = sys.component("ctrl_switch")
+    _apply(sys, DegradeComponent({"resistance": sw.roff}), {"subject": sw})
 
 
 def _cross_psu_ctrl_cables(sys: DiagnosableSystem) -> None:
