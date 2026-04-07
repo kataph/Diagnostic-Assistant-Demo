@@ -11,7 +11,7 @@ from rdflib.namespace import split_uri
 
 
 from configuration import Configuration
-from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticFaultHypothesis, DiagnosticPlan, HypothesisVerificationResult, Observation, diagnosticActionTypes
+from environment_classes import AssistantState, DiagnosticAction, DiagnosticActionResult, DiagnosticAssistant, DiagnosticFaultHypothesis, DiagnosticPlan, HypothesisVerificationResult, Observation, diagnosticActionTypes, SimplifiedOutcome
 from Utilities.formatting import terminal_uri_parts_gpt, to_one_line
 from Utilities.utils import get_key, get_set
 from Utilities.caching import possibly_cached_runner_run
@@ -68,53 +68,57 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             # orders by decreasing gain and *increasing* cost. TODO This is O(nlog(n)) and only used for logging. Could be imporved to O(n)
             test2gain.sort(key=lambda x: (x[1], x[2]), reverse=True)
             logger.debug(f"Sorted actions by gain: {test2gain}")
-            old_action = test2gain[0][0]
-            next_action = old_action.model_copy(  # nedded because I froze the model in its definition
+            selected_action = test2gain[0][0]
+            next_action = selected_action.model_copy(  # needed because I froze the model in its definition
                 update={
-                    "description": old_action.description
-                    + "\n\n"
-                    + (
+                    "reporting_requirements": (
                         "This action is to be executed with the goal of individuating the "
-                        f"problem(s) {terminal_uri_parts_gpt(self.test2problem[old_action])}. "
+                        f"problem(s) {terminal_uri_parts_gpt(self.test2problem[selected_action])}. "
                         "While you execute it, please keep a watchful eye for some anomalous "
                         "behavior that suggests the presence of the aforementioned problems. "
-                        "If you do find some such suggestions, then write the word 'anomalous' "
-                        "as outcome, 'nominal' otherwise. Do not write anything else.\n> "
+                        f"At the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS} "
+                        f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL} if everything appears normal. "
+                        "Include exactly one of these two tokens.\n> "
                     )
                 }
             )
             # since I modified the frozen action, I also have to modified the key in the dictionary, otherwise they will not match
-            self.test2problem[next_action] = self.test2problem.pop(old_action)
+            self.test2problem[next_action] = self.test2problem.pop(selected_action)
             return next_action
         else:
             return None
-
+    
+    def anomaly_encountered(free_text_outcome: str) -> bool:
+        return SimplifiedOutcome.ANOMALOUS in free_text_outcome 
+    def no_anomaly_encountered(free_text_outcome: str) -> bool:
+        return SimplifiedOutcome.NOMINAL in free_text_outcome
+        
     async def update_test_problem_matrix(self, last_action_outcome: DiagnosticActionResult, logger: Logger) -> None:
-        """It will reduce the size of the test2problem dictionary depening on the outcome of the last executed action"""
-        async def get_simplified_outcome(free_text_outcome: str) -> LiteralType["anomalous", "nominal"]:
+        """It will reduce the size of the test2problem dictionary depening on the outcome of the last executed action,
+        also returns if an anomaly """
+        async def get_simplified_outcome(free_text_outcome: str) -> SimplifiedOutcome:
             # this old design works but requires human input every time and cannot be automatized. Thus, I inserted (mutata mutatis) the below text into the suggested action. 'anomalous' or 'nominal' should then always be already present in the outcome text.
             # for that to be true, the KGOptimal assistant will modify the description of the actions that are supplied to the service agent
             # out = await async_friendly_input(f"The action you've executed was {last_action_outcome.action.get_name()} and was aimed to individuate the problem(s) {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])}. Did you find in your testing some anomalous behavior that suggests the presence of the aforementioned problems? Write 'anomalous' if so, 'nominal' otherwise\n> ")
             # while out not in ["anomalous", "nominal"]:
             #     out = await async_friendly_input(f"Please, reply with either 'anomalous' or 'nominal'\n> ")
             # return out
-            free_text_outcome = free_text_outcome.lower()
-            anomaly_encountered = 'anomalous' in free_text_outcome
-            no_anomaly_encountered = 'nominal' in free_text_outcome
+            anomaly_encountered = self.anomaly_encountered(free_text_outcome) 
+            no_anomaly_encountered = self.no_anomaly_encountered(free_text_outcome)
             if anomaly_encountered and no_anomaly_encountered:
                 raise ValueError(
-                    f"The action outcome {free_text_outcome} contains both the 'anomalous' and the 'nominal' words. It should contain only one of these!")
+                    f"The action outcome {free_text_outcome} contains both the {SimplifiedOutcome.ANOMALOUS} and the {SimplifiedOutcome.NOMINAL} tokens. It should contain only one of these!")
             if not anomaly_encountered and not no_anomaly_encountered:
                 raise ValueError(
-                    f"The action outcome {free_text_outcome} contains neither the 'anomalous' nor the 'nominal' words. It should exactly one of these!")
-            return 'anomalous' if anomaly_encountered else 'nominal'
+                    f"The action outcome {free_text_outcome} contains neither the {SimplifiedOutcome.ANOMALOUS} nor the {SimplifiedOutcome.NOMINAL} tokens. It should contain exactly one of these!")
+            return SimplifiedOutcome.ANOMALOUS if anomaly_encountered else SimplifiedOutcome.NOMINAL
 
         if not last_action_outcome.simplified_outcome:
             simple_outcome = await get_simplified_outcome(last_action_outcome.outcome)
         else:
             simple_outcome = last_action_outcome.simplified_outcome
         match simple_outcome:
-            case 'anomalous':  # Anomalous/Y means that anomalous behavior was found by testing: the action is described as a Y/N question, where Y refers to non-nominal behavior, linked to some failure modes, while Nominal/N refers to nominal behavior, and is linked to the complement set of such failure modes. --> 'Y': keep only the linked failure modes; 'N': remove the linked failure modes
+            case SimplifiedOutcome.ANOMALOUS:  # Anomalous/Y means that anomalous behavior was found by testing: the action is described as a Y/N question, where Y refers to non-nominal behavior, linked to some failure modes, while Nominal/N refers to nominal behavior, and is linked to the complement set of such failure modes. --> 'Y': keep only the linked failure modes; 'N': remove the linked failure modes
                 logger.info(
                     f"I am keeping only the problems {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])} in my plan and removing the last test")
                 # Keeps only problem individuated by test
@@ -125,7 +129,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                     key: value for key, value in self.test2problem.items() if len(value) > 0}
                 # drops the last test
                 self.test2problem.pop(last_action_outcome.action, None)
-            case 'nominal':
+            case SimplifiedOutcome.NOMINAL:
                 logger.info(
                     f"I am removing the problems {terminal_uri_parts_gpt(self.test2problem[last_action_outcome.action])} in my plan")
                 # Removes problems individuated by test
@@ -141,9 +145,16 @@ class HeuristicTestingProcedure(DiagnosticPlan):
 
 class AssistantStateKGO(AssistantState):
     """Helper class to keep track of the KGOptimal assistant state"""
+    found_anomaly_in_current_candidates: bool = False
     current_pieces_of_evidence: list[set] = Field(default_factory=list)
     current_candidates: set = Field(default_factory=set)
     current_explicit_plan: Optional[HeuristicTestingProcedure] = None
+    # URI string of the last problem emitted as a hypothesis (for absorbing feedback).
+    last_hypothesized_problem: Optional[str] = None
+    # Problems confirmed absent via "wrong" hypothesis verification.
+    # Filtered out of every future plan so they cannot resurface through
+    # top-level system components (e.g. 3CubesSystem :failsVia X :hasCause*).
+    excluded_problems: set[str] = Field(default_factory=set)
 
 
 class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
@@ -178,6 +189,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         self.state.current_pieces_of_evidence = pieces_of_evidence
         self.state.current_candidates = minimal_dense_set(
             pieces_of_evidence, self.logger)
+        self.state.found_anomaly_in_current_candidates = False
         self.logger.info(
             f"Starting pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)}")
         self.logger.info(
@@ -189,8 +201,29 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
     async def record_outcome(self, last_outcome) -> None:
         self.state.diagnostic_scenario_memory.append(
             last_outcome)  # increases diagnostic memory
+        if self.state.current_explicit_plan.anomaly_encountered(last_outcome.outcome): # if anomaly encountered remember it for the current candidate set
+            self.state.found_anomaly_in_current_candidates = True
         await self.state.current_explicit_plan.update_test_problem_matrix(last_outcome, self.logger)
 
+    def _delete_current_candidates_from_evidence(self) -> None:
+        """Deletes the current candidates from the evidence pieces. Modified variables: self.state.current_pieces_of_evidence"""
+        for i, piece in enumerate(self.state.current_pieces_of_evidence):
+            self.logger.debug(
+                f"piece number {i} was of length {len(piece)}...")
+            piece.difference_update(set(self.state.current_candidates))
+            self.logger.debug(f"... now it is of length {len(piece)}.")
+        self.state.current_pieces_of_evidence = [
+            piece for piece in self.state.current_pieces_of_evidence if len(piece) > 0]
+        self.logger.info(f"New pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)}")
+        
+    def _set_current_candidates_from_evidence(self) -> None:
+        """Set the current candidates from the current evidence pieces using the minimal_dense_set function 
+        and sets the found_anomaly_in_current_candidates to False. Modified variables: self.state.current_candidates; self.state.found_anomaly_in_current_candidates"""
+        self.state.current_candidates = minimal_dense_set(
+            self.state.current_pieces_of_evidence, self.logger)
+        self.state.found_anomaly_in_current_candidates = False
+        self.logger.info(f"New candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}")
+    
     async def suggest_action(self) -> Optional[DiagnosticAction | DiagnosticFaultHypothesis]:
         """
         Return the next DiagnosticAction from the current plan, or a
@@ -200,41 +233,79 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         Returns None only if there are genuinely no candidates and no
         evidence remaining.
         """
-        self.logger.debug(
-            f"Current explicit plan is {self.state.current_explicit_plan}")
 
-        if self.state.current_explicit_plan and (next_action := self.state.current_explicit_plan.get_next_action(self.logger)):
+        if len(self.state.current_candidates) == 1 and self.state.found_anomaly_in_current_candidates:
+            return DiagnosticFaultHypothesis(
+                suspected_components=self.state.current_candidates.pop(),
+                explanation=(
+                    f"There is only one current candidate, and an anomaly was found in it"
+                ),
+            ) 
+        
+        # self.state.current_explicit_plan.test2problem may bool casting to False while having accessible empty values! Take this in consideration
+        remaining_problems = set().union(*self.state.current_explicit_plan.test2problem.values())
+        if len(remaining_problems) == 1 and self.state.found_anomaly_in_current_candidates:
+            sole_problem = next(iter(remaining_problems))
+            components = get_components_from_problem(
+                self.configuration.KG_PATH, URIRef(str(sole_problem))
+            )
+            # TODO: reduce components variable with intersect with state.current_candidates set
+            self.state.last_hypothesized_problem = str(sole_problem)
             self.logger.info(
-                f"Got next action from current plan: {next_action.get_name()}")
-            return next_action
-        else:  # plan is currently exhausted, must try instantiating a new plan
+                f"Single problem remaining: {terminal_uri_parts_gpt([sole_problem])}. "
+                f"Emitting hypothesis for components: {terminal_uri_parts_gpt(components)}"
+            )
+            return DiagnosticFaultHypothesis(
+                suspected_components={str(c) for c in components},
+                explanation=(
+                    f"Testing procedure is singling out a unique problem: "
+                    f"{terminal_uri_parts_gpt([sole_problem])}."
+                ),
+            )
+        # this should happen only if the last problem 
+        if len(remaining_problems) == 0 and self.state.found_anomaly_in_current_candidates:
+            # TODO: reduce components variable with intersect with state.current_candidates set
+            self.logger.info(
+                f"Emitting hypothesis for current candidates since they are likely anomalous: {self.state.current_candidates}"
+            )
+            return DiagnosticFaultHypothesis(
+                suspected_components=self.state.current_candidates,
+                explanation=(
+                    f"Testing procedure is singling out a unique problem: "
+                    f"{terminal_uri_parts_gpt([sole_problem])}."
+                ),
+            )
+        
+        if self.state.current_explicit_plan:
+            self.logger.debug(
+                f"Current explicit plan is {self.state.current_explicit_plan}")
+            # If only one problem remains across all tests, emit a hypothesis
+            # directly instead of running another diagnostic action.
+            # Otherwise try to output a diagnostic action.
+            
+                
+            
+            elif (next_action := self.state.current_explicit_plan.get_next_action(self.logger)):
+                self.logger.info(
+                    f"Got next action from current plan: {next_action.get_name()}")
+                return next_action
+        
+        if (self.state.current_explicit_plan is None) or (len(self.state.current_explicit_plan) == 0) or (not next_action):
+            # plan is currently exhausted, must try instantiating a new plan
             # Save candidates BEFORE removing them so we can report them as a
             # hypothesis if recovery fails to find anything new.
-            exhausted_candidates = set(self.state.current_candidates)
-            self.logger.warning(
-                "Current plan exhausted... I will remove the current candidates from each piece of evidence, try to generate a new plan and call my suggest_action method again.")
-            for i, piece in enumerate(self.state.current_pieces_of_evidence):
-                self.logger.debug(
-                    f"piece number {i} was of length {len(piece)}...")
-                piece.difference_update(set(self.state.current_candidates))
-                self.logger.debug(f"... now it is of length {len(piece)}.")
-            self.state.current_pieces_of_evidence = [
-                piece for piece in self.state.current_pieces_of_evidence if len(piece) > 0]
-            self.state.current_candidates = minimal_dense_set(
-                self.state.current_pieces_of_evidence, self.logger)
-            self.logger.info(
-                f"Starting pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)} --- Starting candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}")
+            self.logger.warning("Current plan bacame exhausted or maybe was not able to create testing procedure during setup... I will remove the current candidates from each piece of evidence, try to generate a new plan and call my suggest_action method again.")
+            self._delete_current_candidates_from_evidence()
+            self._set_current_candidates_from_evidence()
             self.state.current_explicit_plan = self._create_testing_procedure()
             if not self.state.current_explicit_plan:
                 # No new candidates after recovery. The last exhausted candidates
-                # are our best hypothesis; emit it for the service agent to verify.
-                if exhausted_candidates:
-                    self.logger.info(
-                        f"Plan fully exhausted. Emitting fault hypothesis for "
-                        f"candidates: {terminal_uri_parts_gpt(exhausted_candidates)}")
+                # are our best hypothesis IF we know something may be wrong with them; 
+                # In that case emit it for the service agent to verify.
+                if self.state.found_anomaly_in_current_candidates:
                     return DiagnosticFaultHypothesis(
-                        suspected_components={str(c) for c in exhausted_candidates},
-                        explanation="All diagnostic tests exhausted; these are the final remaining candidate components.",
+                        suspected_components=self.last_candidates
+                        explanation="Some anomaly was found when testing these candidates. Although the exact issue was not determined, "
                     )
                 self.logger.error(
                     "Could not generate a plan and no candidates remain. "
@@ -249,16 +320,61 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         result: HypothesisVerificationResult,
     ) -> None:
         await super().record_hypothesis_outcome(hypothesis, result)
+
+        if result.outcome == "correct":
+            # Session ends — nothing to update.
+            return
+
+        prob_str = self.state.last_hypothesized_problem
+
         if result.outcome == "partial":
+            # Some components of the hypothesized problem are confirmed faulty
+            # and are already being progressively repaired by the service agent
+            # (tracked via _repaired_comp_ids).  Leave the plan unchanged so
+            # suggest_action re-emits the same single-problem hypothesis on the
+            # next round; test_repair will pick up the remaining components via
+            # already_repaired_ids and return "correct" once all are fixed.
             self.logger.info(
-                "Hypothesis partially confirmed: some suspected components were faulty "
-                "but the system is not yet fully restored. Continuing diagnosis."
+                "Hypothesis partially confirmed: service agent is tracking repairs. "
+                "Will re-emit hypothesis on next round for remaining components."
             )
+
         elif result.outcome == "wrong":
+            # The hypothesized problem is not real.
+            # We must remove the wrong problem's components from current_candidates
+            # AND from current_pieces_of_evidence, then rebuild the plan.
+            # Purging only test2problem is insufficient: _create_testing_procedure()
+            # queries the ontology fresh from current_candidates, which would
+            # reintroduce the wrong problem into the new plan.
             self.logger.warning(
-                "Hypothesis was wrong: none of the suspected components were faulty. "
-                "All candidates exhausted; session will end."
+                f"Hypothesis wrong: removing problem {prob_str!r} and its "
+                f"components from candidates and evidence, then rebuilding plan."
             )
+            if prob_str:
+                # Permanently exclude this problem from all future plans.
+                # This is the primary guard: top-level system components
+                # (e.g. 3CubesSystem :failsVia LightbulbDoesNotTurnOn :hasCause*)
+                # reach every leaf problem, so component-only pruning is
+                # insufficient — the problem resurfaces via those catch-all paths.
+                self.state.excluded_problems.add(prob_str)
+                wrong_components = get_components_from_problem(
+                    self.configuration.KG_PATH, URIRef(prob_str)
+                )
+                wrong_strs = {str(c) for c in wrong_components}
+                self.state.current_candidates -= wrong_strs
+                for piece in self.state.current_pieces_of_evidence:
+                    piece.difference_update(wrong_components)
+                    piece.difference_update(wrong_strs)
+                self.state.current_pieces_of_evidence = [
+                    p for p in self.state.current_pieces_of_evidence if p
+                ]
+                self.logger.info(
+                    f"Excluded problem {terminal_uri_parts_gpt([URIRef(prob_str)])} from future plans. "
+                    f"Removed candidates: {terminal_uri_parts_gpt(wrong_components)}. "
+                    f"Remaining candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}"
+                )
+            self.state.current_explicit_plan = self._create_testing_procedure()
+            self.state.last_hypothesized_problem = None
 
     def _create_testing_procedure(self) -> Optional[HeuristicTestingProcedure]:
         if len(self.state.current_candidates) == 0:
@@ -272,12 +388,28 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             subjects=set(URIRef(component_str)
                          for component_str in self.state.current_candidates),
             expand=False)
+        # Filter out problems confirmed absent via "wrong" hypothesis.
+        # Top-level system components (e.g. 3CubesSystem :failsVia X :hasCause*)
+        # reach every leaf problem, so without this filter a ruled-out problem
+        # resurfaces every time the plan is rebuilt.
+        if self.state.excluded_problems:
+            before = len(test_problem_cost)
+            test_problem_cost = [
+                row for row in test_problem_cost
+                if str(row[1]) not in self.state.excluded_problems
+            ]
+            removed = before - len(test_problem_cost)
+            if removed:
+                self.logger.info(
+                    f"Filtered {removed} test-problem row(s) for excluded problems: "
+                    f"{terminal_uri_parts_gpt(self.state.excluded_problems)}"
+                )
         self.logger.debug(f"""I queried to get test_problem_cost matrix. I queried with
                     ontology_path={self.configuration.KG_PATH},
                     schema_path={self.configuration.ONTOLOGY_PATH},
                     subjects={set(URIRef(component_str) for component_str in self.state.current_candidates)},
                     expand={False},
-                    
+
                     And got test_problem_cost = {test_problem_cost}
                         """)
 
@@ -350,7 +482,7 @@ def get_diagnostic_action_properties(ontology_path: str, subject: URIRef) -> tup
         raise ValueError(
             f"Zero or more than one line of attributes returned for action {subject}. It should be just one. They are: {results.serialize(format='csv')}\n\n Inputs are {ontology_path} --- {subject}")
     result = list(results)[0]
-    return (split_uri(str(result.type))[1], str(result.target), result.description)
+    return (split_uri(str(result.type))[1], split_uri(str(result.target))[1], result.description)
 
 
 def get_component_closure(ontology_path: str, schema_path: str, subject: URIRef) -> set[URIRef]:
@@ -498,7 +630,10 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
 
     logger.debug(
         f"Entering in possibly cached with configuration.USE_CACHE {configuration.USE_CACHE}")
-    output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input=PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom=str(symptom), components="\n    ".join(str(component) for component in all_components)), cached=configuration.USE_CACHE)
+    formatted_components = "\n    ".join(
+        f"{split_uri(str(c))[1]} ({str(c)})" for c in all_components
+    )
+    output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input=PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom=str(symptom), components=formatted_components), cached=configuration.USE_CACHE)
     logger.info(f"from the symptom '{symptom}' found {output}")
     return [URIRef(url_str) for url_str in output.components_suggesting_anomaly_presence], [URIRef(url_str) for url_str in output.components_suggesting_nominal_behavior]
 
@@ -585,6 +720,31 @@ def get_putative_failed_components_from_component_behaving_nominally(ontology_pa
 #################################################
 # BLOCK FOR CANDIDATE COMPONENTS -> CANDIDATE PROBLEMS REASONING
 #################################################
+
+def get_components_from_problem(ontology_path: str, problem: URIRef) -> set[URIRef]:
+    """
+    Inverse of get_problems_from_component.
+    Given a problem URI, return the components that are associated with it via:
+        component :failsVia problem
+        component :hasFunction / :defines problem
+    """
+    # query = """
+    # PREFIX : <http://www.example.org/zorro/>
+    # SELECT DISTINCT ?object
+    # WHERE { ?subject (^:hasCause)*/(^:failsVia|(^:defines/^:hasFunction)) ?object }
+    # """
+    # # the following filters out components that are less specific while having the same problems 
+    query = """
+    PREFIX : <http://www.example.org/zorro/> 
+    SELECT DISTINCT ?object 
+    WHERE { 
+    ?subject (^:hasCause)*/(^:failsVia|(^:defines/^:hasFunction)) ?object . 
+    FILTER NOT EXISTS {?subject (^:hasCause)*/(^:failsVia|(^:defines/^:hasFunction)) ?subcomponent . ?subcomponent ^:hasSubComponent ?object .}
+    """
+    graph = Graph().parse(ontology_path)
+    results = graph.query(query, initBindings={"subject": problem})
+    return {row.object for row in results}
+
 
 def get_problems_from_component(ontology_path: str, schema_path: str, subject: URIRef, expand: bool = False) -> set[URIRef]:
     """

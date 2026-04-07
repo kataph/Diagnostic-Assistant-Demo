@@ -164,7 +164,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.debug(f"Added ServiceAgentSpiceSim own logger to the simulated_system. Spice circuits just before simulation should now appear in the logs")
         narrative, cost, _, _ = await asyncio.to_thread(
             nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS,
+            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS, self.logger
         )
         self.logger.info(
             f"Initial simulation observation "
@@ -187,7 +187,8 @@ class ServiceAgentSpiceSim(ServiceAgent):
         nl_prompt = action.description or action.get_name()
         narrative, sim_cost, actions, results = await asyncio.to_thread(
             nl_run, nl_prompt, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS,
+            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS, self.logger,
+            action.reporting_requirements,
         )
 
         self.logger.info(f"action parsed from text input: {actions}")
@@ -245,7 +246,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         _, sim_cost, entries, _ = await asyncio.to_thread(
             nl_run, verify_map_prompt, sim,
-            self.configuration.LLM_ASSISTANT_MODEL, {"verify_repair"},
+            self.configuration.LLM_ASSISTANT_MODEL, {"verify_repair"}, self.logger
         )
         candidate_ids: set[str] = {
             entry["subject"] for entry in entries
@@ -272,10 +273,25 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
 
         # After test_repair the circuit is back in the fault state.
+        from diagnosable_systems_simulation.world.components import Cable as _Cable
+
+        def _is_wrong_node(comp) -> bool:
+            """True for a cable with a port connected to the wrong net."""
+            if not isinstance(comp, _Cable):
+                return False
+            orig = getattr(comp, "_orig_connections", {})
+            return any(
+                p.is_connected()
+                and orig.get(p.name) is not None
+                and p.node_id != orig[p.name]
+                for p in comp.ports
+            )
+
         still_broken_ids = {
             cid for cid, c in sim.all_components().items()
             if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
             or c.has_fault()
+            or _is_wrong_node(c)
         }
         actually_faulty = candidate_ids & still_broken_ids
 

@@ -300,19 +300,19 @@ if __name__ == "__main__":
     #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     #     )
     #     main_args(**kwargs)
-    for scenario_id in [10]:
+    for scenario_id in [1]:
         # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
         num_runs = 1
-        assistant = "LLM"
+        assistant = "EvidenceKGOptimal"
         kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
         write_separator(
             out_file,
             f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
         )
         main_args(**kwargs)
-    # for scenario_id in [12]:
+    # for scenario_id in [12,13,14]:
     #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-    #     num_runs = 1
+    #     num_runs = 10
     #     assistant = "LLM"
     #     kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
     #     write_separator(

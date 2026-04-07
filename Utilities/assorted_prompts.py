@@ -23,18 +23,32 @@ class PROMPTS(Enum):
     Component list:
     {components}
     """
-    AnomalousNominalComponentExtractor_agent_v2 = """You will be given an engineered system description and a list of component identifiers. The system description is a description of certain aspect of the system current behavior. The component identifiers (built using URL addresses) list all the components of the system. 
-    
-    You must do the following: identify all the components that are mentioned in the current system behavior (Limit yourself to those mentioned in the behavior description explicitely and no others!). Then, for each of those, use the function 'retrieve_component_context_tool' to understand if the current behavior of the component is suggesting that something is anomalous in the system (either in the component itself or somewhere else) or not. If yes, put the component into a 'components_suggesting_anomaly_presence' list, if not put the component into a 'components_suggesting_nominal_behavior' list. If no relevant information about a component can be derived from the description then this component should not be included in either list, so that the union of the two lists may be smaller than the whole list of components. Additionally, the two lists should not have common elements. Please, copy the component identifiers as they are provided in the two lists, but not for calling the function 'retrieve_component_context_tool': for the latter do use natural terms, sentences, synonyms, etc..
-    
-    You MUST use the tool retrieve_component_context_tool. Do not answer if you dont use the tool. 
+    AnomalousNominalComponentExtractor_agent_v2 = """You will be given a description of an engineered system's current observable behavior and a list of component identifiers. Each component is shown as "LocalName (full_URI)".
+
+Your goal is to classify components into two lists:
+- components_suggesting_anomaly_presence: the behavior description suggests this component (or something it interacts with) is NOT functioning normally.
+- components_suggesting_nominal_behavior: the behavior description explicitly indicates this component IS functioning normally.
+Components for which the description provides no information must be excluded from both lists.
+
+Follow these steps exactly for each component mentioned or strongly implied by the description:
+1. Call retrieve_component_context_tool with a natural-language description of the component to understand its normal function and role.
+2. Based on the behavior description AND the retrieved context, decide: anomalous, nominal, or unknown.
+3. If anomalous or nominal, add the component's full_URI (not the LocalName) to the appropriate output list.
+
+Classification rules:
+- anomalous: the description suggests the component is malfunctioning, missing, or that a fault exists at or near it.
+- nominal: the description explicitly states the component is working correctly.
+- When uncertain, do NOT include the component in either list.
+- The two lists must be disjoint.
+
+You MUST call retrieve_component_context_tool for every component you classify. Do not classify any component without first calling the tool.
     """
 
     AnomalousNominalComponentExtractor_agent_v2_input = """
     Current system behavior description:
     {symptom}
-    
-    Component list:
+
+    Component list (format: LocalName (full_URI)):
     {components}
     """
     AnomalousNominalComponentExtractor_call_v2 = """You are given an engineered system description and a list of component identifiers. The system description is compoed of two parts: a general description of the system and also a description of its current behavior. The component identifiers (built using URL addresses) list all the components of the system. 

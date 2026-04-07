@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 import logging
 
 from abc import ABC, abstractmethod
@@ -93,6 +94,10 @@ class DiagnosticAction(BaseModel):
     type: diagnosticActionTypes
     target: str
     description: Optional[str] = None
+    # Optional requirements on how the outcome of this action should be reported
+    # (e.g. "include ANOMALOUS/NOMINAL verdict token").  Intended for post-execution
+    # reporting; do not use for action identification/parsing.
+    reporting_requirements: Optional[str] = None
 
     def get_name(self):
         return f"{self.type} -> {self.target}"
@@ -109,13 +114,16 @@ class DiagnosticAction(BaseModel):
     def get_cost(self) -> int:
         return ACTION_COST_MAP[self.type]
 
-
+class SimplifiedOutcome(Enum):
+    ANOMALOUS: str = "ANOMALOUS"
+    NOMINAL: str = "NOMINAL"
+    
 class DiagnosticActionResult(BaseModel):
     action: DiagnosticAction
     outcome: str
     precise_action_cost: Optional[float] = None
     cost_breakdown: Optional[list[tuple[str, float]]] = None
-    simplified_outcome: Optional[Literal['anomalous', 'nominal']] = None
+    simplified_outcome: Optional[SimplifiedOutcome] = None
 
     def __str__(self):
         return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
@@ -522,7 +530,10 @@ async def run_diagnostic_scenario(
 
         elif isinstance(suggestion, DiagnosticAction):
             if chat_log:
-                chat_log.assistant_action(suggestion.type, suggestion.target, suggestion.description or "")
+                full_desc = suggestion.description or ""
+                if suggestion.reporting_requirements:
+                    full_desc = full_desc + ("\n\n" if full_desc else "") + suggestion.reporting_requirements
+                chat_log.assistant_action(suggestion.type, suggestion.target, full_desc)
             start = perf_counter()
             last_outcome = await service_agent.execute_action(system, suggestion, sabotage_root)
             end = perf_counter()

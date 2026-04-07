@@ -142,13 +142,28 @@ def _disconnect_ctrl6_cable_in_pos(sys: DiagnosableSystem) -> None:
 
 
 def _remove_all_ctrl_green_leds(sys: DiagnosableSystem) -> None:
-    """Simulate removal of all 8 control-module green LEDs by open-circuiting them."""
+    """
+    Physically remove all 8 control-module green LEDs from the system.
+
+    Each LED is removed from both the circuit graph (ports disconnected, open
+    circuit at the socket) and the knowledge graph (entity deleted).  After
+    removal the LED is not present in ``all_components()`` and will not appear
+    in any observation — exactly as a technician would see an empty LED socket.
+
+    NOT modelled via DegradeComponent: that leaves the component in place with
+    has_fault()==True, which leaks fault information, and forward_voltage=1e9
+    does not produce a reliable open circuit in the SPICE backend.
+
+    The indicator resistor (``ctrl{i}_green_resistor``) is also removed along
+    with each LED.  Without this, the resistor's ``n`` port would remain on the
+    now-empty LED-anode net — a floating node with a single connection.
+    SPICE cannot solve a circuit with a floating node (singular matrix), so
+    all eight dangling resistor ends would corrupt the simulation even when
+    the main-circuit fault is correctly repaired.
+    """
     for i in range(1, 9):
-        _apply(
-            sys,
-            DegradeComponent({"forward_voltage": 1e9}),
-            {"subject": sys.component(f"ctrl{i}_green_led")},
-        )
+        sys.remove_component(f"ctrl{i}_green_led")
+        sys.remove_component(f"ctrl{i}_green_resistor")
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +226,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id=5, system_name="3_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
+            root_cause_description_proper="The cables between the control module and the load module are crossed, resulting in reverse voltage being supplied to the load",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The lamp does not turn on when the switch is operated"),
                 SymptomDescription("The green led on top of the power supply module is on"),
@@ -263,7 +278,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id=9, system_name="10_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
+            root_cause_description_proper="The switch in the control module 3 is detached from one of the corresponding cables. Also, all the control module leds (and their associated indicator resistors) have been removed.",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The led on the power supply module is on"),
                 SymptomDescription("All the leds on the control modules are missing"),
@@ -276,7 +291,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id=10, system_name="10_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed.",
+            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds (and their associated indicator resistors) have been removed.",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The led on the power supply module is on"),
                 SymptomDescription("All the leds on the control modules are missing"),
@@ -289,7 +304,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id=11, system_name="10_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds have been removed. Also, the service agent does not have a multimeter or other tools at its disposal to take electric measurements.",
+            root_cause_description_proper="The switch in the control module 6 is detached from one of the corresponding cables. Also, all the control module leds (and their associated indicator resistors) have been removed. Also, the service agent does not have a multimeter or other tools at its disposal to take electric measurements.",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The led on the power supply module is on"),
                 SymptomDescription("All the leds on the control modules are missing"),
@@ -302,7 +317,7 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         id=12, system_name="3_cubes",
         root_cause=RootCauseDescription(
-            root_cause_description_proper="Detached cable from the switch and, at the same time and independently, The cables between the control module and the load module (or between the power supply module and the control module) are crossed, resulting in reverse voltage being supplied to the load",
+            root_cause_description_proper="Detached cable from the switch and, at the same time and independently, The cables between the control module and the load module are crossed, resulting in reverse voltage being supplied to the load",
             symptoms_descriptions=SymptomDescriptions([
                 SymptomDescription("The lamp does not turn on when the switch is operated"),
                 SymptomDescription("The green led on top of the power supply module is on"),
