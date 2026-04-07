@@ -78,8 +78,8 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         self.state.conversation_history = get_updated_conversation(
             self.state.conversation_history, f"The system is experiencing the following symptoms:\n{format_list(self.state.initial_observations)}")
 
-    async def record_outcome(self, last_outcome) -> None:
-        await super().record_outcome(last_outcome)
+    async def record_action_outcome(self, last_outcome) -> None:
+        await super().record_action_outcome(last_outcome)
         self.state.conversation_history = get_updated_conversation(
             self.state.conversation_history, f"Someone executed a (additional) diagnostic action on the system. The action (type, target_component, description, outcome) was: \nTYPE: {last_outcome.action.type},\nTARGET: {last_outcome.action.target},\nDESCRIPTION: {last_outcome.action.description},\nRESULT: {last_outcome.outcome}\n")
 
