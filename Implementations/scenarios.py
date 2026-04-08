@@ -132,13 +132,13 @@ def _short_psu_output_and_discharge(sys: DiagnosableSystem) -> None:
 # ---------------------------------------------------------------------------
 
 def _disconnect_ctrl3_cable_in_pos(sys: DiagnosableSystem) -> None:
-    """Detach ctrl3's positive input cable, breaking the circuit from ctrl3 onwards."""
-    _apply(sys, DisconnectCable(), {"subject": sys.component("ctrl3_cable_in_pos")})
+    """Detach the switch-side connector (port 'n', inside the ctrl3 cube) of ctrl3's positive input cable."""
+    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl3_cable_in_pos")})
 
 
 def _disconnect_ctrl6_cable_in_pos(sys: DiagnosableSystem) -> None:
-    """Detach ctrl6's positive input cable, breaking the circuit from ctrl6 onwards."""
-    _apply(sys, DisconnectCable(), {"subject": sys.component("ctrl6_cable_in_pos")})
+    """Detach the switch-side connector (port 'n', inside the ctrl6 cube) of ctrl6's positive input cable."""
+    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl6_cable_in_pos")})
 
 
 def _remove_all_ctrl_green_leds(sys: DiagnosableSystem) -> None:

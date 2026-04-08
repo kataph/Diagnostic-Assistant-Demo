@@ -300,7 +300,7 @@ if __name__ == "__main__":
     #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     #     )
     #     main_args(**kwargs)
-    for scenario_id in [1]:
+    for scenario_id in [8]:
         # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
         num_runs = 1
         assistant = "EvidenceKGOptimal"

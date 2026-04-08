@@ -57,6 +57,35 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             (A/T) * math.log2(T/A)) + ((B/T) * math.log2(T/B))
         return expected_information_gain/cost
 
+    def _get_reporting_requirements(self, action: DiagnosticAction) -> str:
+        """Gets the string to be appended to the instructions sent to the service agent to get the correct return token."""
+        match action.get_name():
+            # For now this is the only test that makes use of an 'exclusionary' logic: if component A works, then B must not work
+            # Any similar test should be treated with a similar logic.
+            case 'Observe -> InternalIndicatorLamp':
+                return (
+                    "This action is to be executed with the goal of individuating the "
+                    f"problem(s) {terminal_uri_parts_gpt(self.test2problem[action])}. "
+                    "These problems are problems of the main load. Since the internal indicator lamp "
+                    "is parallel to the main load we assume that if it works correctly then "
+                    "it is the main load to carry some issue. "
+                    "Therefore, if you see the internal indicator lamp lit without issues, "
+                    f"at the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value}, "
+                    "to suggest that the main load has some problem. "
+                    f"Instead, if the internal indicator lamp is not lit, append {SimplifiedOutcome.NOMINAL.value}. "
+                    "Include exactly one of these two tokens."
+                )
+            case _:
+                return (
+                    "This action is to be executed with the goal of individuating the "
+                    f"problem(s) {terminal_uri_parts_gpt(self.test2problem[action])}. "
+                    "While you execute it, please keep a watchful eye for some anomalous "
+                    "behavior that suggests the presence of the aforementioned problems. "
+                    f"At the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value} "
+                    f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL.value} if everything appears normal. "
+                    "Include exactly one of these two tokens."
+                )
+
     def get_next_action(self, logger: Logger) -> DiagnosticAction | None:
         """
         Return the diagnostic action with the highest information gain.
@@ -71,15 +100,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             selected_action = test2gain[0][0]
             next_action = selected_action.model_copy(  # needed because I froze the model in its definition
                 update={
-                    "reporting_requirements": (
-                        "This action is to be executed with the goal of individuating the "
-                        f"problem(s) {terminal_uri_parts_gpt(self.test2problem[selected_action])}. "
-                        "While you execute it, please keep a watchful eye for some anomalous "
-                        "behavior that suggests the presence of the aforementioned problems. "
-                        f"At the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value} "
-                        f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL.value} if everything appears normal. "
-                        "Include exactly one of these two tokens."
-                    )
+                    "reporting_requirements": self._get_reporting_requirements(selected_action)
                 }
             )
             # since I modified the frozen action, I also have to modified the key in the dictionary, otherwise they will not match
@@ -155,6 +176,9 @@ class AssistantStateKGO(AssistantState):
     # Filtered out of every future plan so they cannot resurface through
     # top-level system components (e.g. 3CubesSystem :failsVia X :hasCause*).
     excluded_problems: set[str] = Field(default_factory=set)
+    # Names of tests already returned by suggest_action, persisted across plan rebuilds
+    # so that _create_testing_procedure can filter them out and never repeat a test.
+    executed_tests: list[str] = Field(default_factory=list)
 
 
 class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
@@ -296,6 +320,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         if self.state.current_explicit_plan is not None and (next_action := self.state.current_explicit_plan.get_next_action(self.logger)):
             self.logger.info(
                 f"Got next action from current plan: {next_action.get_name()}")
+            self.state.executed_tests.append(next_action.get_name())
             return next_action
         # If there is no plan or no action can be extracted from the plan
         else:
@@ -424,6 +449,20 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             if test not in test2problem:
                 test2problem.update({test: []})
             test2problem[test].append(problem := row[1])
+
+        # Filter out tests already executed in previous plan cycles.
+        if self.state.executed_tests:
+            before = len(test2problem)
+            test2problem = {
+                t: v for t, v in test2problem.items()
+                if t.get_name() not in self.state.executed_tests
+            }
+            removed = before - len(test2problem)
+            if removed:
+                self.logger.info(
+                    f"Filtered {removed} already-executed test(s) from new plan. "
+                    f"Executed so far: {self.state.executed_tests}"
+                )
 
         self.logger.debug(f"Returning test2problem = {test2problem}")
         return HeuristicTestingProcedure(test2problem=test2problem)

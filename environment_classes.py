@@ -567,6 +567,8 @@ async def run_diagnostic_scenario(
 
         else:  # suggestion is None
             print("\nAssistant has no further actions to suggest.")
+            if chat_log:
+                chat_log.system("Assistant has no further actions to suggest.")
 
         # Ask service agent if it wants to finish.
         user_finished, user_root = await service_agent.decide_finish(system, assistant.state, sabotage_root)
@@ -577,6 +579,8 @@ async def run_diagnostic_scenario(
         if suggestion is None:
             # No further suggestions and agent chose to continue: auto-stop.
             print("No actions and agent chose to continue; that is, the user will continue the diagnosis and the assistant cannot help. Ending session automatically.")
+            if chat_log:
+                chat_log.system("No further suggestions and service agent chose to continue — session ended automatically.")
             break
 
     # 4) Summary
@@ -599,6 +603,8 @@ async def run_diagnostic_scenario(
     if chat_log:
         rounds = len(cost_vector)
         total  = sum(cost_vector)
+        if not assistant.state.user_confirmed_root_cause:
+            chat_log.system("⏱ Session ended without identifying the root cause.")
         chat_log.close(f"{rounds} round{'s' if rounds != 1 else ''} · total cost {total:.0f}")
 
     # print("\nFull assistant state:")
