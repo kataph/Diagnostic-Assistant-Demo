@@ -53,7 +53,7 @@ to the sabotaged system with the switch opened.
 This is the first netlist: 
 
 .title diagnosable_system
-Vpsu_source net_0 0 12.0
+Vbattery net_0 0 12.0
 Dpsu_green_led net_1 _led_mid_psu_green_led LED_psu_green_led
 R_rled_psu_green_led _led_mid_psu_green_led 0 1.0
 Rpsu_cable_neg 0 net_3 0.01
@@ -80,7 +80,7 @@ Rinternal_bulb net_12 net_11 500.0
 This is the third one: 
 
 .title diagnosable_system
-Vpsu_source net_0 0 12.0
+Vbattery net_0 0 12.0
 Dpsu_green_led net_1 _led_mid_psu_green_led LED_psu_green_led
 R_rled_psu_green_led _led_mid_psu_green_led 0 1.0
 Rpsu_cable_neg 0 net_3 0.01

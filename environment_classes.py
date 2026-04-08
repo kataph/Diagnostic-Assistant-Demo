@@ -339,7 +339,7 @@ class DiagnosticAssistant(ThingThatLogs):
 
     External code can:
       - setup() initial state
-      - record_outcome(last_outcome) to update the assistant state
+      - record_action_outcome(last_outcome) to update the assistant state
       - suggest_action() to advance the dialogue
       - finish_session(root_cause) when the *service agent* decides to stop
       - read .state for logging / UI / analysis
@@ -359,7 +359,7 @@ class DiagnosticAssistant(ThingThatLogs):
         """
 
     # @abstractmethod
-    async def record_outcome(self, last_outcome: DiagnosticActionResult) -> None:
+    async def record_action_outcome(self, last_outcome: DiagnosticActionResult) -> None:
         """
         Update the assistant state given the last outcome. 
         """
@@ -553,7 +553,7 @@ async def run_diagnostic_scenario(
                     else last_outcome.action.get_cost(),
                     cost_breakdown=last_outcome.cost_breakdown,
                 )
-            await assistant.record_outcome(last_outcome)
+            await assistant.record_action_outcome(last_outcome)
 
         else:  # suggestion is None
             print("\nAssistant has no further actions to suggest.")

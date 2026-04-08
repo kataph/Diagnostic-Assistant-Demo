@@ -115,7 +115,7 @@ def test_move_led_swap():
     ctrl1_mid_node = ctrl1_resistor.port("n").node_id
 
     ctrl1_neg_node = sim.component("ctrl1_cable_in_neg").port("n").node_id
-    psu_neg_node   = sim.component("psu_source").port("neg").node_id
+    psu_neg_node   = sim.component("battery").port("neg").node_id
 
     action = MoveLED(target_module_id="cube_ctrl1")
     result = sim.apply_action(action, {"subject": psu_led})

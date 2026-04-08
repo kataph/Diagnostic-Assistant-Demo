@@ -62,12 +62,12 @@ def _burn_main_bulb(sys: DiagnosableSystem) -> None:
 
 
 def _deplete_battery(sys: DiagnosableSystem) -> None:
-    _apply(sys, DegradeComponent({"voltage": 0.0}), {"subject": sys.component("psu_source")})
+    _apply(sys, DegradeComponent({"voltage": 0.0}), {"subject": sys.component("battery")})
 
 
 def _invert_battery(sys: DiagnosableSystem) -> None:
     """Inverted polarity → negative supply voltage."""
-    _apply(sys, DegradeComponent({"voltage": -12.0}), {"subject": sys.component("psu_source")})
+    _apply(sys, DegradeComponent({"voltage": -12.0}), {"subject": sys.component("battery")})
 
 
 def _force_switch_open(sys: DiagnosableSystem) -> None:
@@ -97,7 +97,7 @@ def _cross_psu_ctrl_cables(sys: DiagnosableSystem) -> None:
     Effect on circuit:
       ctrl_in_p net = 0 V  →  switch output = 0 V  →  lamp off
       ctrl_in_n net = 12 V →  red LED anode = 12 V, cathode via R from 0 V  →  red LED ON
-      Green LED: directly across psu_source  →  still ON
+      Green LED: directly across battery  →  still ON
     """
     in_pos = sys.component("ctrl_cable_in_pos")
     in_neg = sys.component("ctrl_cable_in_neg")
@@ -124,7 +124,7 @@ def _short_psu_output_and_discharge(sys: DiagnosableSystem) -> None:
     psu_pos_node = cable_pos.port("p").node_id   # psu_pos net
     gnd_node = cable_neg.port("p").node_id       # ground net
     _apply(sys, ShortCircuit(psu_pos_node, gnd_node, "psu_output_short"), {})
-    _apply(sys, DegradeComponent({"voltage": 0.0}), {"subject": sys.component("psu_source")})
+    _apply(sys, DegradeComponent({"voltage": 0.0}), {"subject": sys.component("battery")})
 
 
 # ---------------------------------------------------------------------------
