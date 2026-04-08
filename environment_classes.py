@@ -229,6 +229,7 @@ class HypothesisVerificationResult(BaseModel):
     outcome: Literal["correct", "partial", "wrong"]
     narrative: str
     cost: float = HYPOTHESIS_VERIFICATION_COST
+    cost_breakdown: Optional[list[tuple[str, float]]] = None
 
 
 # Human interface through either CLI or voice
@@ -513,12 +514,21 @@ async def run_diagnostic_scenario(
             end = perf_counter()
             time_vector.append(end - start)
             cost_vector.append(verification.cost)
+            breakdown_str = (
+                " | cost_breakdown=" + " + ".join(
+                    f"{name}:{t:.0f}s" for name, t in verification.cost_breakdown
+                )
+                if verification.cost_breakdown else ""
+            )
             scenario_logger.info(
                 f"Hypothesis {suggestion.suspected_components} verified: "
-                f"outcome='{verification.outcome}' | {verification.narrative}"
+                f"outcome='{verification.outcome}' | cost={verification.cost:.0f}s{breakdown_str} | {verification.narrative}"
             )
             if chat_log:
-                chat_log.service_verification(verification.outcome, verification.narrative, cost=verification.cost)
+                chat_log.service_verification(
+                    verification.outcome, verification.narrative,
+                    cost=verification.cost, cost_breakdown=verification.cost_breakdown,
+                )
             await assistant.record_hypothesis_outcome(suggestion, verification)
 
             if verification.outcome == "correct":

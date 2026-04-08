@@ -78,7 +78,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                         "behavior that suggests the presence of the aforementioned problems. "
                         f"At the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value} "
                         f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL.value} if everything appears normal. "
-                        "Include exactly one of these two tokens.\n> "
+                        "Include exactly one of these two tokens."
                     )
                 }
             )
@@ -258,7 +258,9 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         if len(remaining_problems) == 1 and self.state.found_anomaly_in_current_candidates:
             sole_problem = next(iter(remaining_problems))
             components = {str(x) for x in get_components_from_problem(
-                self.configuration.KG_PATH, URIRef(str(sole_problem))
+                ontology_path=self.configuration.KG_PATH,
+                schema_path=self.configuration.ONTOLOGY_PATH,
+                problem = URIRef(str(sole_problem))
             )} & self.state.current_candidates
             self.state.last_hypothesized_problem = str(sole_problem)
             self.logger.info(
@@ -354,7 +356,9 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                 # insufficient — the problem resurfaces via those catch-all paths.
                 self.state.excluded_problems.add(prob_str)
                 wrong_components = get_components_from_problem(
-                    self.configuration.KG_PATH, URIRef(prob_str)
+                    ontology_path=self.configuration.KG_PATH,
+                    schema_path=self.configuration.ONTOLOGY_PATH,
+                    problem=URIRef(prob_str)
                 )
                 wrong_strs = {str(c) for c in wrong_components}
                 self.state.current_candidates -= wrong_strs
@@ -717,7 +721,7 @@ def get_putative_failed_components_from_component_behaving_nominally(ontology_pa
 # BLOCK FOR CANDIDATE COMPONENTS -> CANDIDATE PROBLEMS REASONING
 #################################################
 
-def get_components_from_problem(ontology_path: str, problem: URIRef) -> set[URIRef]:
+def get_components_from_problem(ontology_path: str, schema_path: str, problem: URIRef, expand: bool = False) -> set[URIRef]:
     """
     Inverse of get_problems_from_component.
     Given a problem URI, return the components that are associated with it via:
@@ -736,10 +740,9 @@ def get_components_from_problem(ontology_path: str, problem: URIRef) -> set[URIR
     WHERE { 
     ?subject (^:hasCause)*/(^:failsVia|(^:defines/^:hasFunction)) ?object . 
     FILTER NOT EXISTS {?subject (^:hasCause)*/(^:failsVia|(^:defines/^:hasFunction)) ?subcomponent . ?subcomponent ^:hasSubComponent ?object .}
+    }
     """
-    graph = Graph().parse(ontology_path)
-    results = graph.query(query, initBindings={"subject": problem})
-    return {row.object for row in results}
+    return query_ontology_with_subject_object_query(ontology_path, schema_path, query, problem, expand)
 
 
 def get_problems_from_component(ontology_path: str, schema_path: str, subject: URIRef, expand: bool = False) -> set[URIRef]:

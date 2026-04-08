@@ -244,10 +244,11 @@ class ServiceAgentSpiceSim(ServiceAgent):
             f"Identify the best matching component(s) in the system and call "
             f"verify_repair on each one."
         )
-        _, sim_cost, entries, _ = await asyncio.to_thread(
+        _, sim_cost, entries, verify_results = await asyncio.to_thread(
             nl_run, verify_map_prompt, sim,
             self.configuration.LLM_ASSISTANT_MODEL, {"verify_repair"}, self.logger
         )
+        verify_breakdown = [(a.action_id, a.cost.time) for a, _ in verify_results]
         candidate_ids: set[str] = {
             entry["subject"] for entry in entries
             if entry.get("action_id") == "verify_repair" and entry.get("subject")
@@ -348,6 +349,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
             outcome=outcome,
             narrative=narrative,
             cost=sim_cost.time,
+            cost_breakdown=verify_breakdown or None,
         )
 
     async def decide_finish(

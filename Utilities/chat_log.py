@@ -260,15 +260,23 @@ class ChatLog:
         )
         self._right("service", "🔧", "Service Agent", body)
 
-    def service_verification(self, outcome: str, narrative: str, cost: "float | None" = None) -> None:
+    def service_verification(self, outcome: str, narrative: str, cost: "float | None" = None, cost_breakdown: "list[tuple[str, float]] | None" = None) -> None:
         """Blue right bubble — verification result."""
         icons = {"correct": "✅", "partial": "⚠️", "wrong": "❌"}
         icon = icons.get(outcome, "❓")
         css = outcome if outcome in ("correct", "partial", "wrong") else ""
-        cost_html = (
-            f'<span style="font-size:0.8em;color:#7a9abf;"> · {cost:.0f}s</span>'
-            if cost is not None else ''
-        )
+        if cost is not None:
+            if cost_breakdown and len(cost_breakdown) > 1:
+                breakdown_str = " + ".join(
+                    f"{name}:{t:.0f}s" for name, t in cost_breakdown
+                )
+                cost_html = (
+                    f'<span style="font-size:0.8em;color:#7a9abf;" title="{_e(breakdown_str)}"> · {cost:.0f}s</span>'
+                )
+            else:
+                cost_html = f'<span style="font-size:0.8em;color:#7a9abf;"> · {cost:.0f}s</span>'
+        else:
+            cost_html = ''
         body = (
             f'<div class="body">'
             f'{icon} <span class="{css}">{_e(outcome.upper())}</span>{cost_html}\n'
