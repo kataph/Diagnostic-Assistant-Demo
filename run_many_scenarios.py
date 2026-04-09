@@ -5,6 +5,7 @@ python -m run_many_scenarios
 import argparse
 import subprocess
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 import re
@@ -12,6 +13,8 @@ import statistics
 
 from Implementations.scenarios import SCENARIOS
 from Utilities.formatting import to_PascalCase
+
+_out_file_lock = threading.Lock()
 
 
 def run_scenario_multiple_times(
@@ -24,6 +27,8 @@ def run_scenario_multiple_times(
     service: str,
     saboteur: str = "FixedScenario",
     assistant_model: str = "gpt-4.1",
+    log_path: str | None = None,
+    chat_path: str | None = None,
 ) -> None:
     """
     Run the diagnostic scenario n_runs times.
@@ -65,6 +70,10 @@ def run_scenario_multiple_times(
         "--interface",
         "cli",
     ]
+    if log_path is not None:
+        cmd += ["--log-path", log_path]
+    if chat_path is not None:
+        cmd += ["--chat-path", chat_path]
 
     for i in range(n_runs):
         print(f"Run {i + 1}/{n_runs} (forced-scenario={forced_scenario})...")
@@ -129,12 +138,17 @@ def parse_time_from_log(log_path: Path) -> float:
 
 def parse_success_from_log(log_path: Path) -> bool:
     """
-    Return True if the run ended with a correct hypothesis verification
-    (i.e. outcome='correct' appears in the log), False if the session was
-    exhausted by the patience cap.
+    Return True if the run ended successfully, i.e. either:
+      - A hypothesis verification returned outcome='correct', OR
+      - The system was restored via a direct diagnostic action
+        (replace_component fixed the only fault without a formal hypothesis).
+    Returns False if the session was exhausted by the patience cap.
     """
     text = log_path.read_text(encoding="utf-8", errors="ignore")
-    return bool(re.search(r"outcome='correct'", text))
+    return bool(
+        re.search(r"outcome='correct'", text)
+        or re.search(r"system_restored_via_action", text)
+    )
 
 
 def compute_stats_from_logs(log_files):
@@ -220,7 +234,8 @@ def main_args(
     if not skip_runs:
         run_scenario_multiple_times(
             num_runs, base_dir, forced_scenario, assistant, rounds,
-            system, service, saboteur, assistant_model
+            system, service, saboteur, assistant_model,
+            log_path=str(log_dir),
         )
 
     log_files = get_last_n_log_files(log_dir, num_runs)
@@ -228,11 +243,12 @@ def main_args(
     mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate = (
         compute_stats_from_logs(log_files)
     )
-    append_results(
-        out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
-        forced_scenario, system, log_files_interval,
-        mean_action_number, std_action_number, success_rate,
-    )
+    with _out_file_lock:
+        append_results(
+            out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
+            forced_scenario, system, log_files_interval,
+            mean_action_number, std_action_number, success_rate,
+        )
 
     print(f"Processed {len(log_files)} log files.")
     print(f"Forced scenario: {forced_scenario} | System: {system}")
@@ -241,6 +257,80 @@ def main_args(
     print(f"Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
     print(f"Success rate: {success_rate:.1%}")
     print(f"Results appended to: {out_file}")
+
+
+def main_args_parallel(
+    num_runs: int,
+    base_dir: Path,
+    forced_scenarios_list: list[int],
+    assistant: str,
+    rounds: int,
+    skip_runs: bool,
+    log_dir: Path,
+    out_file: Path,
+    service: str,
+    saboteur: str = "FixedScenario",
+    assistant_model: str = "gpt-4.1",
+    chat_dir: Path | None = None,
+) -> None:
+    """
+    Run each scenario ID in *forced_scenarios_list* with *num_runs* sequential
+    runs, executing all scenario groups in parallel.
+
+    Logs for scenario ID ``sid`` go into ``log_dir / str(sid)`` and chat logs
+    go into ``chat_dir / str(sid)`` (default: ``log_dir.parent / "Chats"``).
+    Statistics for each scenario are written to *out_file* as they finish
+    (protected by a lock).
+    """
+    if chat_dir is None:
+        chat_dir = log_dir.parent / "Chats"
+
+    def _run_one(scenario_id: int) -> None:
+        scenario_log_dir = log_dir / str(scenario_id)
+        scenario_chat_dir = chat_dir / str(scenario_id)
+        scenario_log_dir.mkdir(parents=True, exist_ok=True)
+        scenario_chat_dir.mkdir(parents=True, exist_ok=True)
+
+        target_scenarios = [s for s in SCENARIOS if s.id == scenario_id]
+        if len(target_scenarios) != 1:
+            print(
+                f"[scenario {scenario_id}] Expected exactly 1 matching scenario, "
+                f"found {len(target_scenarios)}. Skipping."
+            )
+            return
+        system = target_scenarios[0].system_name
+
+        if not skip_runs:
+            run_scenario_multiple_times(
+                num_runs, base_dir, scenario_id, assistant, rounds,
+                system, service, saboteur, assistant_model,
+                log_path=str(scenario_log_dir),
+                chat_path=str(scenario_chat_dir),
+            )
+
+        log_files = get_last_n_log_files(scenario_log_dir, num_runs)
+        log_files_interval = log_files[0].name + " --> " + log_files[-1].name
+        mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate = (
+            compute_stats_from_logs(log_files)
+        )
+        with _out_file_lock:
+            append_results(
+                out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
+                scenario_id, system, log_files_interval,
+                mean_action_number, std_action_number, success_rate,
+            )
+
+        print(f"[scenario {scenario_id}] Processed {len(log_files)} log files.")
+        print(f"[scenario {scenario_id}] Mean total cost: {mean_cost:.6f}  (std {std_cost:.6f})")
+        print(f"[scenario {scenario_id}] Mean action number: {mean_action_number:.6f}  (std {std_action_number:.6f})")
+        print(f"[scenario {scenario_id}] Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
+        print(f"[scenario {scenario_id}] Success rate: {success_rate:.1%}")
+
+    threads = [threading.Thread(target=_run_one, args=(sid,)) for sid in forced_scenarios_list]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 def main():
@@ -300,16 +390,57 @@ if __name__ == "__main__":
     #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
     #     )
     #     main_args(**kwargs)
-    for scenario_id in [8]:
-        # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-        num_runs = 1
-        assistant = "EvidenceKGOptimal"
-        kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-        write_separator(
-            out_file,
-            f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        )
-        main_args(**kwargs)
+    
+    # for scenario_id in [8]:
+    #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
+    #     num_runs = 1
+    #     assistant = "EvidenceKGOptimal"
+    #     kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
+    #     write_separator(
+    #         out_file,
+    #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    #     )
+    #     main_args(**kwargs)
+
+    # Example: run scenarios 7, 8, 9 in parallel (each with 3 runs, in series per scenario)
+    num_runs = 1
+    assistant = "EvidenceKGOptimal"
+    parallel_kwargs = {
+        'num_runs': num_runs, 'base_dir': base_dir,
+        'forced_scenarios_list': [8,11],
+        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+        'log_dir': log_dir, 'out_file': out_file,
+        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    }
+    write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    main_args_parallel(**parallel_kwargs)
+    
+    quit()
+    
+    num_runs = 10
+    assistant = "EvidenceKGOptimal"
+    parallel_kwargs = {
+        'num_runs': num_runs, 'base_dir': base_dir,
+        'forced_scenarios_list': [8,9,10,11,12,13,14],
+        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+        'log_dir': log_dir, 'out_file': out_file,
+        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    }
+    write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    main_args_parallel(**parallel_kwargs)
+    
+    num_runs = 10
+    assistant = "EvidenceKGOptimal"
+    parallel_kwargs = {
+        'num_runs': num_runs, 'base_dir': base_dir,
+        'forced_scenarios_list': [1,2,3,4,5,6,7],
+        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+        'log_dir': log_dir, 'out_file': out_file,
+        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    }
+    write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    main_args_parallel(**parallel_kwargs)
+    
     # for scenario_id in [12,13,14]:
     #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
     #     num_runs = 10

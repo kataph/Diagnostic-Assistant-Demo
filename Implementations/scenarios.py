@@ -123,7 +123,7 @@ def _short_psu_output_and_discharge(sys: DiagnosableSystem) -> None:
     cable_neg = sys.component("psu_cable_neg")
     psu_pos_node = cable_pos.port("p").node_id   # psu_pos net
     gnd_node = cable_neg.port("p").node_id       # ground net
-    _apply(sys, ShortCircuit(psu_pos_node, gnd_node, "psu_output_short"), {})
+    _apply(sys, ShortCircuit(psu_pos_node, gnd_node, "psu_output_short"), {"start": cable_pos, "end": cable_neg})
     _apply(sys, DegradeComponent({"voltage": 0.0}), {"subject": sys.component("battery")})
 
 

@@ -343,12 +343,13 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                 f"Problems exhausted but some anomaly was found: either error by the service agent or a previously unseen problem. Returning current list of candidates as fallback: {self.state.current_candidates}"
             )
             self.state.last_hypothesized_candidates = set(self.state.current_candidates)
-            return DiagnosticFaultHypothesis(
-                suspected_components=self.state.current_candidates,
-                explanation=(
-                    f"Problems exhausted but some anomaly was found: either error by the service agent or a previously unseen problem. Returning current list of candidates as fallback."
-                ),
-            )
+            if self.state.current_candidates:
+                return DiagnosticFaultHypothesis(
+                    suspected_components=self.state.current_candidates,
+                    explanation=(
+                        f"Problems exhausted but some anomaly was found: either error by the service agent or a previously unseen problem. Returning current list of candidates as fallback."
+                    ),
+                )
         
                 
         # Case that either 
@@ -390,16 +391,21 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         prob_str = self.state.last_hypothesized_problem
 
         if result.outcome == "partial":
-            # Some components of the hypothesized problem are confirmed faulty
-            # and are already being progressively repaired by the service agent
-            # (tracked via _repaired_comp_ids).  Leave the plan unchanged so
-            # suggest_action re-emits the same single-problem hypothesis on the
-            # next round; test_repair will pick up the remaining components via
-            # already_repaired_ids and return "correct" once all are fixed.
+            # At least one suspected component was confirmed faulty and repaired,
+            # but the system is still broken — more faults remain elsewhere.
+            # Remove all confirmed-repaired components from candidates and evidence
+            # so the next suggest_action looks for the remaining faults rather than
+            # re-emitting the same hypothesis.
+            confirmed = set(result.hypothesis.suspected_components)
             self.logger.info(
-                "Hypothesis partially confirmed: service agent is tracking repairs. "
-                "Will re-emit hypothesis on next round for remaining components."
+                f"Hypothesis partially confirmed: removing {terminal_uri_parts_gpt(confirmed)} "
+                f"from candidates and evidence, then rebuilding plan."
             )
+            self.state.current_candidates -= confirmed
+            self._remove_components_from_pieces_of_evidence(confirmed)
+            self.state.current_explicit_plan = self._create_testing_procedure()
+            self.state.last_hypothesized_problem = None
+            self.state.last_hypothesized_candidates = set()
 
         elif result.outcome == "wrong":
             # The hypothesized problem is not real.

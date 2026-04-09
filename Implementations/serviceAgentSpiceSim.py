@@ -194,6 +194,20 @@ class ServiceAgentSpiceSim(ServiceAgent):
 
         self.logger.info(f"action parsed from text input: {actions}")
         self.logger.info(f"results from the simulation: {[result for action, result in results]}")
+
+        # Track components repaired by replace_component diagnostic actions so that
+        # verify_hypothesis can exclude them from fault-snapshot restores (they were
+        # genuinely fixed mid-session and must not be re-faulted during test_repair).
+        for entry, (_, res) in zip(actions, results):
+            if entry.get("action_id") == "replace_component" and res.success:
+                cid = entry.get("subject")
+                if cid:
+                    self._repaired_comp_ids.add(cid)
+                    self.logger.info(
+                        f"execute_action: tracked '{cid}' in _repaired_comp_ids "
+                        f"after successful replace_component"
+                    )
+
         fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
         state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
         full_outcome = f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n{state_summary}"
@@ -267,14 +281,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 f"{hypothesis.suspected_components}; falling back to all broken: {candidate_ids}"
             )
 
-        # --- Test: repair candidates, simulate, check lamps ------------------
-        lamp_on = await asyncio.to_thread(
-            sim.test_repair,
-            candidate_ids,
-            already_repaired_ids=self._repaired_comp_ids,
-        )
-
-        # After test_repair the circuit is back in the fault state.
+        # --- Identify all broken components in the current fault state --------
         from diagnosable_systems_simulation.world.components import Cable as _Cable
 
         def _is_wrong_node(comp) -> bool:
@@ -296,6 +303,13 @@ class ServiceAgentSpiceSim(ServiceAgent):
             or _is_wrong_node(c)
         }
         actually_faulty = candidate_ids & still_broken_ids
+
+        # --- Test: repair only the candidates ---------------------------------
+        lamp_on = await asyncio.to_thread(
+            sim.test_repair,
+            candidate_ids,
+            already_repaired_ids=self._repaired_comp_ids,
+        )
 
         # --- Determine outcome -----------------------------------------------
         if lamp_on:
@@ -360,10 +374,24 @@ class ServiceAgentSpiceSim(ServiceAgent):
         root_cause_description: Optional[RootCauseDescription],
     ) -> tuple[bool, Optional[RootCauseDescription]]:
         """
-        Patience-based safety cap.  Natural termination is driven by the
-        assistant emitting a DiagnosticFaultHypothesis that verifies as
-        "correct", which the orchestrator handles before calling decide_finish.
+        Termination check.  In addition to the patience-based safety cap,
+        we check whether the system is already restored (lamp on).  This
+        happens when the technician replaces the faulty component directly
+        via a diagnostic action instead of going through verify_hypothesis.
+        Such runs are counted as successes in statistical metrics.
         """
+        sim = system.simulated_system
+        if sim is not None:
+            nominal_lit = getattr(sim, "_nominal_emitting_light", frozenset())
+            if nominal_lit:
+                result = await asyncio.to_thread(sim.simulate)
+                if result.emitting_light >= nominal_lit:
+                    self.logger.info(
+                        "ServiceAgentSpiceSim: system_restored_via_action — "
+                        "lamp is on, ending session as success."
+                    )
+                    return (True, None)
+
         if self.annoyance_level >= self.patience_level:
             self.logger.info(
                 "ServiceAgentSpiceSim: patience exhausted, ending session."

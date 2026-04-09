@@ -57,6 +57,13 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
                 f"  Action costs by type: Replace={ACTION_COST_MAP['Replace']}, "
                 f"Adjust={ACTION_COST_MAP['Adjust']}, Test={ACTION_COST_MAP['Test']}, "
                 f"Observe={ACTION_COST_MAP['Observe']}.\n\n"
+                "IMPORTANT NOTE ON MODE 1: if a replace action will repair a component, "
+                "this fact will be maintained throughout the whole diagnosis. But if a "
+                "(series of) non-replacement actions happens to repair a fault, it may "
+                "happen that those action effects will be silently reset, due to "
+                "preventing system state draft. So, prefer MODE 2 for component repair "
+                "instead of MODE 1 diagnostic actions. Ditto if you want to directy verify "
+                "the presence of a fault. "
                 "MODE 2 — declare a fault hypothesis (suggestion_type='hypothesis'):\n"
                 "  Use this ONLY when you are sufficiently confident about which specific "
                 "components are faulty. The service agent will then attempt to repair/replace "
@@ -64,6 +71,11 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
                 "  Provide suspected_components (a list of component names/IDs you believe are "
                 "faulty) and optionally hypothesis_explanation.\n\n"
                 "Do not switch to MODE 2 prematurely: a wrong hypothesis has a high fixed cost."
+                "IMPORTANT NOTE ON MODE 2: if you suspect a configuration error (e.g. two cables "
+                "are swapped), then provide all the components involved in the suspected_components "
+                "list. ALWAYS provide one or more compoenntes in suspected_components (even though "
+                "it may happen they do not suffer from an interal fault, but from some configuration "
+                "issue)."
             ),
             model=self.configuration.LLM_ASSISTANT_MODEL,
             output_type=DiagnosticSuggestion,
