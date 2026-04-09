@@ -99,6 +99,7 @@ _DIAGNOSTIC_ALLOWED_ACTIONS: set[str] = {
     "adjust_potentiometer",
     "disconnect_cable",
     "reconnect_cable",
+    "detach_sequence_of_control_modules_and_attach_it_to_power_and_load",
     # degrade_component, force_switch are fault-injection actions — never diagnostic
 }
 

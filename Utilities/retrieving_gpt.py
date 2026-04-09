@@ -111,7 +111,15 @@ def embed_texts(texts, client: OpenAI, embed_model: str):
 # BUILD / LOAD INDEX
 # =====================
 
+# In-process index memo: avoids re-reading disk on every query within the same run.
+_index_memo: dict[tuple, tuple] = {}
+
+
 def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model, cache_path):
+    key = (folder_path, chunk_size, chunk_overlap, tokenizer_model, embed_model)
+    if key in _index_memo:
+        return _index_memo[key]
+
     print("Loading documents...")
     chunks = load_and_chunk_documents(
         folder_path, chunk_size, chunk_overlap, tokenizer_model)
@@ -141,6 +149,7 @@ def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_ove
 
     print(f"Index ready ({len(chunks)} chunks).")
 
+    _index_memo[key] = (chunks, chunk_embeddings)
     return chunks, chunk_embeddings
 
 # =====================

@@ -75,6 +75,17 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                     f"Instead, if the internal indicator lamp is not lit, append {SimplifiedOutcome.NOMINAL.value}. "
                     "Include exactly one of these two tokens."
                 )
+            case 'Test -> ControlSubsystem':
+                return (
+                    "This action is to be executed with the goal of individuating the "
+                    f"problem(s) {terminal_uri_parts_gpt(self.test2problem[action])}. "
+                    "The test works as follows: if the lamp turns ON when only the selected "
+                    "control modules are in the circuit, the subchain is functioning correctly. "
+                    "If the lamp remains OFF, at least one module in the subchain is faulty. "
+                    f"Therefore: if the lamp is OFF, append {SimplifiedOutcome.ANOMALOUS.value}. "
+                    f"If the lamp is ON, append {SimplifiedOutcome.NOMINAL.value}. "
+                    "Include exactly one of these two tokens."
+                )
             case _:
                 return (
                     "This action is to be executed with the goal of individuating the "
@@ -172,6 +183,7 @@ class AssistantStateKGO(AssistantState):
     current_explicit_plan: Optional[HeuristicTestingProcedure] = None
     # URI string of the last problem emitted as a hypothesis (for absorbing feedback).
     last_hypothesized_problem: Optional[str] = None
+    last_hypothesized_candidates: set = Field(default_factory=set)
     # Problems confirmed absent via "wrong" hypothesis verification.
     # Filtered out of every future plan so they cannot resurface through
     # top-level system components (e.g. 3CubesSystem :failsVia X :hasCause*).
@@ -225,19 +237,44 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
     async def record_action_outcome(self, last_outcome) -> None:
         self.state.diagnostic_scenario_memory.append(
             last_outcome)  # increases diagnostic memory
-        if self.state.current_explicit_plan.anomaly_encountered(last_outcome.outcome): # if anomaly encountered remember it for the current candidate set
+        if self.state.current_explicit_plan.anomaly_encountered(last_outcome.outcome):
             self.state.found_anomaly_in_current_candidates = True
+            # Narrow candidates to the components directly implicated by this anomalous
+            # test (Bayesian update: ANOMALOUS means the fault IS in these components).
+            # Must be done before update_test_problem_matrix drops the test from the map.
+            implicated_problems = self.state.current_explicit_plan.test2problem.get(last_outcome.action, [])
+            if implicated_problems:
+                implicated_components: set[str] = set()
+                for p in implicated_problems:
+                    implicated_components.update(
+                        str(c) for c in get_components_from_problem(
+                            ontology_path=self.configuration.KG_PATH,
+                            schema_path=self.configuration.ONTOLOGY_PATH,
+                            problem=URIRef(str(p)),
+                        )
+                    )
+                narrowed = self.state.current_candidates & implicated_components
+                if narrowed:  # guard: never wipe candidates due to a KG gap
+                    if narrowed != self.state.current_candidates:
+                        self.logger.info(
+                            f"ANOMALOUS result narrowed candidates from "
+                            f"{terminal_uri_parts_gpt(self.state.current_candidates)} "
+                            f"to {terminal_uri_parts_gpt(narrowed)}"
+                        )
+                    self.state.current_candidates = narrowed
         await self.state.current_explicit_plan.update_test_problem_matrix(last_outcome, self.logger)
+
+    def _remove_components_from_pieces_of_evidence(self, components: set) -> None:
+        """Remove *components* from every piece of evidence and drop empty pieces."""
+        for piece in self.state.current_pieces_of_evidence:
+            piece.difference_update(components)
+        self.state.current_pieces_of_evidence = [
+            p for p in self.state.current_pieces_of_evidence if p
+        ]
 
     def _delete_current_candidates_from_evidence(self) -> None:
         """Deletes the current candidates from the evidence pieces. Modified variables: self.state.current_pieces_of_evidence"""
-        for i, piece in enumerate(self.state.current_pieces_of_evidence):
-            self.logger.debug(
-                f"piece number {i} was of length {len(piece)}...")
-            piece.difference_update(set(self.state.current_candidates))
-            self.logger.debug(f"... now it is of length {len(piece)}.")
-        self.state.current_pieces_of_evidence = [
-            piece for piece in self.state.current_pieces_of_evidence if len(piece) > 0]
+        self._remove_components_from_pieces_of_evidence(set(self.state.current_candidates))
         self.logger.info(f"New pieces of evidence: {terminal_uri_parts_gpt(self.state.current_pieces_of_evidence)}")
         
     def _set_current_candidates_from_evidence(self) -> None:
@@ -264,6 +301,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         # hypothesis, in the latter either an error has occurred or the knowledge graph employed is wrong or incomplete. 
         # In the latter case we would still emit a similar hypothesis as a fallback, so it make sense emitting it now. 
         if len(self.state.current_candidates) == 1 and self.state.found_anomaly_in_current_candidates:
+            self.state.last_hypothesized_candidates = set(self.state.current_candidates)
             return DiagnosticFaultHypothesis(
                 suspected_components=self.state.current_candidates,
                 explanation=(
@@ -304,6 +342,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
             self.logger.info(
                 f"Problems exhausted but some anomaly was found: either error by the service agent or a previously unseen problem. Returning current list of candidates as fallback: {self.state.current_candidates}"
             )
+            self.state.last_hypothesized_candidates = set(self.state.current_candidates)
             return DiagnosticFaultHypothesis(
                 suspected_components=self.state.current_candidates,
                 explanation=(
@@ -387,19 +426,23 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                 )
                 wrong_strs = {str(c) for c in wrong_components}
                 self.state.current_candidates -= wrong_strs
-                for piece in self.state.current_pieces_of_evidence:
-                    piece.difference_update(wrong_components)
-                    piece.difference_update(wrong_strs)
-                self.state.current_pieces_of_evidence = [
-                    p for p in self.state.current_pieces_of_evidence if p
-                ]
+                self._remove_components_from_pieces_of_evidence(wrong_components | wrong_strs)
                 self.logger.info(
                     f"Excluded problem {terminal_uri_parts_gpt([URIRef(prob_str)])} from future plans. "
                     f"Removed candidates: {terminal_uri_parts_gpt(wrong_components)}. "
                     f"Remaining candidates: {terminal_uri_parts_gpt(self.state.current_candidates)}"
                 )
+            elif self.state.last_hypothesized_candidates:
+                # Hypothesis was emitted from the single-candidate or last-candidates-fallback path (no specific
+                # problem was tracked). Remove the candidates directly.
+                # _remove_components_from_pieces_of_evidence is called first so that
+                # current_candidates can be passed without copying (no aliasing risk).
+                self._remove_components_from_pieces_of_evidence(self.state.current_candidates)
+                self.state.current_candidates = set()
+                self.logger.info("Single-candidate or las-candidates-fallback hypothesis was wrong; candidate(s) removed directly.")
             self.state.current_explicit_plan = self._create_testing_procedure()
             self.state.last_hypothesized_problem = None
+            self.state.last_hypothesized_candidates = set()
 
     def _create_testing_procedure(self) -> Optional[HeuristicTestingProcedure]:
         if len(self.state.current_candidates) == 0:
