@@ -10,7 +10,7 @@ class SaboteurHuman(Saboteur):
     async def sabotage(self, description: SystemDescription) -> Optional[RootCauseDescription]:
         prompt_for_human_start = (f"Your job is to sabotage the physical system (hopefully it is next to you), in any way you see fit.\n"
                                   + f"If it is of any help, the following is a textual description of the system:\n     {description.text_input}\n"
-                                  + (f"Consider also the accompanying file (id: {description.file_id})\n" if description.file_id else "\n")
+                                  + ("Consider also the accompanying diagram.\n" if (description.file_id or description.image_b64) else "\n")
                                   + "When you are finished, please, press enter.\n")
         input(prompt_for_human_start)
         y_n = ""

@@ -27,7 +27,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from diagnosable_systems_simulation.systems.ten_cubes.factory import build_ten_cubes_system
-from Implementations.scenarios import SCENARIOS
+from Implementations.fault_injections import SCENARIOS
 
 
 # ---------------------------------------------------------------------------

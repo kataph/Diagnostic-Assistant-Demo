@@ -1,19 +1,25 @@
 import random
 from typing import Optional
 
+from Knowledge_sources.Simulations.ambient_light_sensor.factory import build_ambient_light_system
+from Knowledge_sources.Simulations.asymmetric_chains.factory import build_asymmetric_chains_system
+from Knowledge_sources.Simulations.current_sensor.factory import build_current_sensor_system
 from Knowledge_sources.Simulations.three_cubes.factory import build_three_cubes_system
 from Knowledge_sources.Simulations.ten_cubes.factory import build_ten_cubes_system
 
 from configuration import Configuration
 from environment_classes import RootCauseDescription, Saboteur, SystemDescription
 
-from .scenarios import SCENARIOS, Scenario
+from .fault_injections import SCENARIOS, Scenario
 
 # Map SYSTEM_NAME (from Configuration) to (system_name_tag, builder_fn)
-# system_name_tag must match Scenario.system_name values in scenarios.py
+# system_name_tag must match Scenario.system_name values derived from the CSV
 _BUILDERS = {
-    "3CubesSystem":  ("3_cubes",  build_three_cubes_system),
-    "10CubesSystem": ("10_cubes", build_ten_cubes_system),
+    "3CubesSystem":             ("3_cubes",              build_three_cubes_system),
+    "10CubesSystem":            ("10_cubes",             build_ten_cubes_system),
+    "AmbientLightSensorSystem": ("ambient_light_sensor", build_ambient_light_system),
+    "AsymmetricChainsSystem":   ("asymmetric_chains",    build_asymmetric_chains_system),
+    "CurrentSensorSystem":      ("current_sensor",       build_current_sensor_system),
 }
 
 
@@ -63,6 +69,10 @@ class SaboteurSpiceSim(Saboteur):
         # Build a fresh simulation instance and attach it
         sim = builder(extra_tools=scenario.world_context.tools_in_hand)
         description.simulated_system = sim
+
+        # Apply system configuration (e.g. remove LED indicators) before any fault
+        if scenario.system_config_fn is not None:
+            scenario.system_config_fn(sim)
 
         # Capture the nominal output (before any faults) so verify_hypothesis
         # can check whether output devices are lit after a repair.

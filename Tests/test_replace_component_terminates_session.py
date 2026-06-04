@@ -95,7 +95,7 @@ class TestReplaceComponentTerminatesSession:
         agent = _make_agent()
         system_desc = SystemDescription(text_input="", simulated_system=faulted_system)
 
-        finished, root = asyncio.run(agent.decide_finish(system_desc, None, None))
+        finished, root, _ = asyncio.run(agent.decide_finish(system_desc, None, None))
         assert finished, "decide_finish must return True when lamp is on"
         # root may be None — that is fine, the orchestrator marks it as success
         # via the system_restored_via_action log marker.
@@ -105,6 +105,6 @@ class TestReplaceComponentTerminatesSession:
         agent = _make_agent()
         system_desc = SystemDescription(text_input="", simulated_system=faulted_system)
 
-        finished, _ = asyncio.run(agent.decide_finish(system_desc, None, None))
+        finished, _, __ = asyncio.run(agent.decide_finish(system_desc, None, None))
         assert not finished, \
             "decide_finish must not end the session while the fault is still active"

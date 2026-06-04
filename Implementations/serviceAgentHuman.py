@@ -50,6 +50,8 @@ class ServiceAgentHuman(ServiceAgent):
             await self.io.prompt(f"  -> {action.description}")
         else:
             await self.io.prompt(f"  -> the action has no description")
+        if action.reporting_requirements:
+            await self.io.prompt(f"  [Reporting instructions] {action.reporting_requirements}")
 
         await self.io.prompt("(Execute the action and describe the outcome)")
 
@@ -94,19 +96,19 @@ class ServiceAgentHuman(ServiceAgent):
             cost=HYPOTHESIS_VERIFICATION_COST,
         )
 
-    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
+    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:
         answer = (await self.io.read_line("\nDo you consider the diagnosis done now? [y/else]\n> ")).strip().lower()
         if answer not in self.AFFIRMATIVE_WORDS:
-            return (False, None)
+            return (False, None, None)
         # Comment 3 lines above and uncomment line below for faster interaction
-        # return (False, None)
+        # return (False, None, None)
 
         answer = (await self.io.read_line("\nDo you want to record the putative root cause? [y/else]\n> ")).strip().lower()
         if answer not in self.AFFIRMATIVE_WORDS:
-            return (True, None)
+            return (True, None, "Session ended by operator decision without recording a root cause.")
 
         return (True, RootCauseDescription(
             root_cause_description_proper=(await self.io.read_line("Describe the root cause you believe has determined the system failure: ")).strip(),
             symptoms_descriptions=None,
             notes=(await self.io.read_line("Optional notes: ")).strip() or None,
-        ))
+        ), None)

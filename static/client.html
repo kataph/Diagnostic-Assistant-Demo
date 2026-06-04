@@ -50,6 +50,9 @@
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       cursor: pointer;
       touch-action: none;
+      -webkit-touch-callout: none;  /* iOS: suppress long-press callout */
+      -webkit-user-select: none;    /* Safari */
+      user-select: none;            /* all browsers */
     }
 
     #talk:active {
@@ -204,9 +207,12 @@ function speak(text) {
         talkBtn.addEventListener("mouseleave", stopRecording);
 
         // Touch events
-        talkBtn.addEventListener("touchstart", startRecording);
-        talkBtn.addEventListener("touchend", stopRecording);
-        talkBtn.addEventListener("touchcancel", stopRecording);
+        talkBtn.addEventListener("touchstart", startRecording, { passive: false });
+        talkBtn.addEventListener("touchend", stopRecording, { passive: false });
+        talkBtn.addEventListener("touchcancel", stopRecording, { passive: false });
+
+        // Suppress long-press context menu on mobile
+        talkBtn.addEventListener("contextmenu", e => e.preventDefault());
       })
       .catch(err => {
         log("Error accessing microphone: " + err);

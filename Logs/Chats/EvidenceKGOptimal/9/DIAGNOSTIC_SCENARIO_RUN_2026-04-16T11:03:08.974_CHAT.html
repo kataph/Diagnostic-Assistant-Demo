@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnostic Session Chat</title>
+<style>
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    background: #0e1117;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    color: #e0e0e0;
+}
+.header {
+    background: #1f2933;
+    border-bottom: 1px solid #2e3d4f;
+    padding: 14px 20px;
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+}
+.header .icon { font-size: 1.8em; }
+.header h1 { font-size: 1em; font-weight: 600; color: #cdd8e3; }
+.header p  { font-size: 0.75em; color: #7a8fa6; margin-top: 2px; }
+.chat {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 18px 12px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+/* ── row wrappers ── */
+.row        { display: flex; align-items: flex-end; gap: 8px; }
+.row.left   { flex-direction: row; }
+.row.right  { flex-direction: row-reverse; }
+.row.centre { justify-content: center; }
+
+/* ── avatar ── */
+.avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1em; flex-shrink: 0;
+}
+.avatar.saboteur  { background: #5c1a1a; }
+.avatar.assistant { background: #1a4a2e; }
+.avatar.service   { background: #1a2e5c; }
+
+/* ── bubble ── */
+.bubble {
+    max-width: 68%;
+    padding: 9px 13px 7px;
+    border-radius: 12px;
+    font-size: 0.875em;
+    line-height: 1.5;
+    word-break: break-word;
+}
+.row.left  .bubble { border-bottom-left-radius:  3px; }
+.row.right .bubble { border-bottom-right-radius: 3px; }
+
+.bubble.saboteur  { background: #3d0f0f; border: 1px solid #7a2020; }
+.bubble.assistant { background: #0f2d1a; border: 1px solid #1e6640; }
+.bubble.service   { background: #0d1f3c; border: 1px solid #1e3a6e; }
+
+/* ── sender label ── */
+.sender {
+    font-size: 0.72em; font-weight: 700;
+    margin-bottom: 4px;
+    text-transform: uppercase; letter-spacing: .04em;
+}
+.sender.saboteur  { color: #e57373; }
+.sender.assistant { color: #66bb6a; }
+.sender.service   { color: #64b5f6; }
+
+/* ── timestamp ── */
+.ts { font-size: 0.68em; color: #5a6a7a; text-align: right; margin-top: 4px; }
+
+/* ── pre-formatted message body ── */
+.body { white-space: pre-wrap; }
+
+/* ── tag (action type badge) ── */
+.tag {
+    display: inline-block;
+    background: #ffffff18;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.78em;
+    font-weight: 600;
+    margin-right: 5px;
+    letter-spacing: .02em;
+}
+
+/* ── system pill ── */
+.pill {
+    background: #1c2533;
+    border: 1px solid #2e3d4f;
+    border-radius: 20px;
+    padding: 4px 16px;
+    font-size: 0.75em;
+    color: #8899aa;
+    text-align: center;
+    max-width: 90%;
+}
+
+/* ── outcome colours ── */
+.correct { color: #66bb6a; font-weight: 700; }
+.partial { color: #ffa726; font-weight: 700; }
+.wrong   { color: #ef5350; font-weight: 700; }
+
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="icon">🔧</div>
+  <div>
+    <h1>Diagnostic Session</h1>
+    <p>DIAGNOSTIC_SCENARIO_RUN_2026-04-16T11:03:08.974</p>
+  </div>
+</div>
+<div class="chat">
+<div class="row left"><div class="avatar saboteur">💣</div><div class="bubble saboteur"><div class="sender saboteur">Saboteur</div><div class="body">💣 <b>Fault injected</b>
+root cause: &#x27;&#x27;The switch in the control module 3 is detached from one of the corresponding cables. Also, all the control module leds (and their associated indicator resistors) have been removed.&#x27;&#x27; symptoms/observable manifestantions: &#x27;The led on the power supply module is on | All the leds on the control modules are missing | The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position&#x27;</div><div class="ts">11:03:10</div></div></div>
+<div class="row centre"><div class="pill">Initial observations:
+• The led on the power supply module is on
+• All the leds on the control modules are missing
+• The lamp does not turn on when a battery is inserted in the circuit and all the switches are in the on position</div></div>
+<div class="row left"><div class="avatar assistant">🤖</div><div class="bubble assistant"><div class="sender assistant">Diagnostic Assistant</div><div class="body"><span class="tag">Test</span><b>ControlSubsystem</b>
+Detach the control modules from module 1 to module 6 from the circuit, then attach them between the PSU and load modules and check if the lamp turns on. 
+
+This action is to be executed with the goal of individuating the problem(s) [&#x27;DetachedSwitch1&#x27;, &#x27;DetachedSwitch2&#x27;, &#x27;DetachedSwitch3&#x27;, &#x27;DetachedSwitch4&#x27;, &#x27;DetachedSwitch5&#x27;, &#x27;DetachedSwitch6&#x27;]. The test works as follows: if the lamp turns ON when only the selected control modules are in the circuit, the subchain is functioning correctly. If the lamp remains OFF, at least one module in the subchain is faulty. Therefore: if the lamp is OFF, write ANOMALOUS. If the lamp is ON, write NOMINAL. Include exactly one of these two tokens at the start of your reply.</div><div class="ts">11:03:29</div></div></div>
+<div class="row right"><div class="avatar service">🔧</div><div class="bubble service"><div class="sender service">Service Agent</div><div class="body"><b>Test -&gt; ControlSubsystem</b><span style="font-size:0.8em;color:#7a9abf;"> · 330s</span><div style="font-size:0.70em;color:#4a5a6a;margin-top:1px;">detach sequence of control modules and attach it to power and load 320s + observe component 10s</div>
+ANOMALOUS
+
+The test outcome indicates that when the entire control module subchain from cube_ctrl1 to cube_ctrl6 is installed between the PSU and the load, the lamp does not turn on. This signifies that at least one fault exists within this subchain (i.e., among modules cube_ctrl1 to cube_ctrl6). Therefore, there is an issue with one or more of these control modules.
+
+Next step: Isolate and individually test smaller subchains or single modules to pinpoint the faulty unit(s).
+Current persistent circuit state [differences with the starting state]:
+No circuit-level changes introduced by diagnostics.</div><div class="ts">11:03:32</div></div></div>
+<div class="row left"><div class="avatar assistant">🤖</div><div class="bubble assistant"><div class="sender assistant">Diagnostic Assistant</div><div class="body"><span class="tag">Test</span><b>ControlSubsystem</b>
+Detach the control modules from module 1 to module 3 from the circuit, then attach them between the PSU and load modules and check if the lamp turns on. 
+
+This action is to be executed with the goal of individuating the problem(s) [&#x27;DetachedSwitch1&#x27;, &#x27;DetachedSwitch2&#x27;, &#x27;DetachedSwitch3&#x27;]. The test works as follows: if the lamp turns ON when only the selected control modules are in the circuit, the subchain is functioning correctly. If the lamp remains OFF, at least one module in the subchain is faulty. Therefore: if the lamp is OFF, write ANOMALOUS. If the lamp is ON, write NOMINAL. Include exactly one of these two tokens at the start of your reply.</div><div class="ts">11:03:32</div></div></div>
+<div class="row right"><div class="avatar service">🔧</div><div class="bubble service"><div class="sender service">Service Agent</div><div class="body"><b>Test -&gt; ControlSubsystem</b><span style="font-size:0.8em;color:#7a9abf;"> · 330s</span><div style="font-size:0.70em;color:#4a5a6a;margin-top:1px;">detach sequence of control modules and attach it to power and load 320s + observe component 10s</div>
+ANOMALOUS
+
+The lamp remains OFF with only the control modules cube_ctrl1 to cube_ctrl3 in the circuit. This indicates that at least one module in the tested subchain (cube_ctrl1, cube_ctrl2, cube_ctrl3) is faulty. Further isolation or individual module testing is required to pinpoint the exact faulty module(s) among [&#x27;DetachedSwitch1&#x27;, &#x27;DetachedSwitch2&#x27;, &#x27;DetachedSwitch3&#x27;].
+Current persistent circuit state [differences with the starting state]:
+No circuit-level changes introduced by diagnostics.</div><div class="ts">11:03:35</div></div></div>
+<div class="row left"><div class="avatar assistant">🤖</div><div class="bubble assistant"><div class="sender assistant">Diagnostic Assistant</div><div class="body"><span class="tag">Test</span><b>ControlSubsystem</b>
+Detach the control modules from module 1 to module 1 from the circuit, then attach them between the PSU and load modules and check if the lamp turns on. 
+
+This action is to be executed with the goal of individuating the problem(s) [&#x27;DetachedSwitch1&#x27;]. The test works as follows: if the lamp turns ON when only the selected control modules are in the circuit, the subchain is functioning correctly. If the lamp remains OFF, at least one module in the subchain is faulty. Therefore: if the lamp is OFF, write ANOMALOUS. If the lamp is ON, write NOMINAL. Include exactly one of these two tokens at the start of your reply.</div><div class="ts">11:03:35</div></div></div>
+<div class="row right"><div class="avatar service">🔧</div><div class="bubble service"><div class="sender service">Service Agent</div><div class="body"><b>Test -&gt; ControlSubsystem</b><span style="font-size:0.8em;color:#7a9abf;"> · 320s</span>
+NOMINAL
+
+The subchain consisting of module cube_ctrl1 is functioning correctly, as the lamp turned ON during the test. No faults are indicated in this module within the scope of test [&#x27;DetachedSwitch1&#x27;].
+Current persistent circuit state [differences with the starting state]:
+No circuit-level changes introduced by diagnostics.</div><div class="ts">11:03:37</div></div></div>
+<div class="row left"><div class="avatar assistant">🤖</div><div class="bubble assistant"><div class="sender assistant">Diagnostic Assistant</div><div class="body"><span class="tag">Test</span><b>ControlSubsystem</b>
+Detach the control modules from module 1 to module 2 from the circuit, then attach them between the PSU and load modules and check if the lamp turns on. 
+
+This action is to be executed with the goal of individuating the problem(s) [&#x27;DetachedSwitch2&#x27;]. The test works as follows: if the lamp turns ON when only the selected control modules are in the circuit, the subchain is functioning correctly. If the lamp remains OFF, at least one module in the subchain is faulty. Therefore: if the lamp is OFF, write ANOMALOUS. If the lamp is ON, write NOMINAL. Include exactly one of these two tokens at the start of your reply.</div><div class="ts">11:03:37</div></div></div>
+<div class="row right"><div class="avatar service">🔧</div><div class="bubble service"><div class="sender service">Service Agent</div><div class="body"><b>Test -&gt; ControlSubsystem</b><span style="font-size:0.8em;color:#7a9abf;"> · 320s</span>
+NOMINAL. The subchain composed of control modules from cube_ctrl1 to cube_ctrl2 is functioning correctly, as the lamp turned ON when only these modules were in the circuit. No faults detected in this segment for the test targeting problem [&#x27;DetachedSwitch2&#x27;].
+Current persistent circuit state [differences with the starting state]:
+No circuit-level changes introduced by diagnostics.</div><div class="ts">11:03:39</div></div></div>
+<div class="row left"><div class="avatar assistant">🤖</div><div class="bubble assistant"><div class="sender assistant">Diagnostic Assistant</div><div class="body">💡 <b>Hypothesis</b>
+Suspected: <b>http://www.example.org/zorro/Switch3</b>
+
+Testing procedure led to finding an anomaly and ended up singling out a unique problem: [&#x27;DetachedSwitch3&#x27;].</div><div class="ts">11:03:39</div></div></div>
+<div class="row right"><div class="avatar service">🔧</div><div class="bubble service"><div class="sender service">Service Agent</div><div class="body">✅ <span class="correct">CORRECT</span><span style="font-size:0.8em;color:#7a9abf;"> · 120s</span>
+Repaired [&#x27;Control Switch 3&#x27;]. All output devices are now lit: system fully restored.</div><div class="ts">11:03:42</div></div></div>
+<div class="row centre"><div class="pill">── Session ended ── 5 rounds · total cost 1420</div></div>
+</div>
+</body>
+</html>

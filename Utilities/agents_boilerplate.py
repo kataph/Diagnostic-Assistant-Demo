@@ -18,6 +18,13 @@ def get_conversation_start(system_description: SystemDescription) -> list[dict]:
                 "file_id": system_description.file_id
             },
         )
+    elif system_description.image_b64:
+        input_item['content'].append(
+            {
+                "type": "input_image",
+                "image_url": f"data:image/png;base64,{system_description.image_b64}",
+            },
+        )
     return (conversation_start := [input_item])
 
 

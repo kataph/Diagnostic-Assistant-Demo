@@ -77,33 +77,6 @@ def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
     return "\n".join(f"  • {l}" for l in lines)
 
 
-# Action IDs available to the NL agent during ordinary diagnosis.
-# Repair/reconnect actions are excluded: the agent has no way to know the
-# correct node IDs, and spurious failed reconnect attempts confuse the
-# diagnostic assistant.
-_DIAGNOSTIC_ALLOWED_ACTIONS: set[str] = {
-    "observe_component",
-    "measure_voltage",
-    "measure_current",
-    "open_switch",
-    "close_switch",
-    "test_continuity",
-    "test_path_continuity",
-    "test_diode",
-    "inspect_connections",
-    "invert_enclosure",
-    "restore_enclosure",
-    "open_peephole",
-    "close_peephole",
-    "replace_component",
-    "adjust_potentiometer",
-    "disconnect_cable",
-    "reconnect_cable",
-    "detach_sequence_of_control_modules_and_attach_it_to_power_and_load",
-    # degrade_component, force_switch are fault-injection actions — never diagnostic
-}
-
-
 class ServiceAgentSpiceSim(ServiceAgent):
     """
     Service agent backed by an equation-based electrical simulation.
@@ -127,6 +100,14 @@ class ServiceAgentSpiceSim(ServiceAgent):
         "Observe all externally visible components of the system "
         "and report their current state."
     )
+
+    # Set to False to disable automatic circuit reset after each action batch.
+    # When True, the full circuit state (switches, cables, enclosure orientations,
+    # open panels) is restored to the fault-snapshot baseline after every batch so
+    # that subsequent observe_component calls always read last_result for the correct
+    # operating conditions rather than a transient test state.
+    # Components in _repaired_comp_ids are excluded and remain in their repaired state.
+    RESET_CIRCUIT_AFTER_BATCH: bool = True
 
     def __init__(self, configuration: Configuration):
         super().__init__(configuration)
@@ -165,7 +146,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.debug(f"Added ServiceAgentSpiceSim own logger to the simulated_system. Spice circuits just before simulation should now appear in the logs")
         narrative, cost, _, _ = await asyncio.to_thread(
             nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS, self.logger
+            self.configuration.LLM_ASSISTANT_MODEL, "collect_information", self.logger
         )
         self.logger.info(
             f"Initial simulation observation "
@@ -188,17 +169,17 @@ class ServiceAgentSpiceSim(ServiceAgent):
         nl_prompt = action.description or action.get_name()
         narrative, sim_cost, actions, results = await asyncio.to_thread(
             nl_run, nl_prompt, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, _DIAGNOSTIC_ALLOWED_ACTIONS, self.logger,
+            self.configuration.LLM_ASSISTANT_MODEL, "collect_information", self.logger,
             action.reporting_requirements,
         )
 
         self.logger.info(f"action parsed from text input: {actions}")
-        self.logger.info(f"results from the simulation: {[result for action, result in results]}")
+        self.logger.info(f"results from the simulation: {[result for action, target, result in results]}")
 
         # Track components repaired by replace_component diagnostic actions so that
         # verify_hypothesis can exclude them from fault-snapshot restores (they were
         # genuinely fixed mid-session and must not be re-faulted during test_repair).
-        for entry, (_, res) in zip(actions, results):
+        for entry, (_, _, res) in zip(actions, results):
             if entry.get("action_id") == "replace_component" and res.success:
                 cid = entry.get("subject")
                 if cid:
@@ -208,9 +189,25 @@ class ServiceAgentSpiceSim(ServiceAgent):
                         f"after successful replace_component"
                     )
 
+        # ── Post-batch circuit reset ──────────────────────────────────────────
+        # Restore the full circuit state (switches, cables, enclosure orientations,
+        # open panels) to the fault-snapshot baseline so last_result always reflects
+        # normal fault-state operating conditions rather than a transient test state.
+        # Components confirmed repaired (in _repaired_comp_ids) are excluded and
+        # remain in their repaired state.  Flip RESET_CIRCUIT_AFTER_BATCH = False
+        # to disable.
+        if self.RESET_CIRCUIT_AFTER_BATCH:
+            _fs = getattr(system.simulated_system, "_fault_snapshot", None)
+            if _fs is not None:
+                system.simulated_system.restore_snapshot(
+                    _fs, exclude_ids=self._repaired_comp_ids
+                )
+                self.logger.info("[post-batch reset] Circuit restored to fault-snapshot baseline.")
+
         fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
         state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
-        full_outcome = f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n{state_summary}"
+        full_outcome = (f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n"
+                        + (f"{state_summary}" if state_summary else "No difference. "))
         self.logger.info(
             f"Executed '{action.get_name()}' via simulation | "
             f"kg_cost={action.get_cost()} | "
@@ -219,11 +216,12 @@ class ServiceAgentSpiceSim(ServiceAgent):
             f"resources={sim_cost.resources_consumed} | "
             f"outcome: {full_outcome}"
         )
-        breakdown = [(a.action_id, a.cost.time) for a, _ in results]
+        breakdown = [(a.action_id, a.cost.time) for a, _, _ in results]
         return DiagnosticActionResult(
             action=action, outcome=full_outcome,
             precise_action_cost=sim_cost.time,
             cost_breakdown=breakdown,
+            raw_results=results,
         )
 
     async def verify_hypothesis(
@@ -261,24 +259,30 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         _, sim_cost, entries, verify_results = await asyncio.to_thread(
             nl_run, verify_map_prompt, sim,
-            self.configuration.LLM_ASSISTANT_MODEL, {"verify_repair"}, self.logger
+            self.configuration.LLM_ASSISTANT_MODEL, "verify", self.logger
         )
-        verify_breakdown = [(a.action_id, a.cost.time) for a, _ in verify_results]
+        verify_breakdown = [(a.action_id, a.cost.time) for a, _, _ in verify_results]
         candidate_ids: set[str] = {
             entry["subject"] for entry in entries
             if entry.get("action_id") == "verify_repair" and entry.get("subject")
         }
 
-        # Fallback: if the NL agent produced no mapping, try all broken components.
+        # If the NL agent could not map the hypothesis to any component, the
+        # suspected components do not exist in the system — verdict is WRONG.
         if not candidate_ids:
-            candidate_ids = {
-                cid for cid, c in sim.all_components().items()
-                if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
-                or c.has_fault()
-            }
             self.logger.warning(
                 f"verify_hypothesis: NL mapping produced no candidates for "
-                f"{hypothesis.suspected_components}; falling back to all broken: {candidate_ids}"
+                f"{hypothesis.suspected_components}; returning wrong verdict."
+            )
+            return HypothesisVerificationResult(
+                hypothesis=hypothesis,
+                outcome="wrong",
+                narrative=(
+                    f"The suspected component(s) {list(hypothesis.suspected_components)} "
+                    f"could not be identified in the system and were not repaired."
+                ),
+                cost=sim_cost.time,
+                cost_breakdown=verify_breakdown or None,
             )
 
         # --- Identify all broken components in the current fault state --------
@@ -322,12 +326,32 @@ class ServiceAgentSpiceSim(ServiceAgent):
         # --- Persist confirmed repairs ----------------------------------------
         if outcome in ("correct", "partial"):
             self._repaired_comp_ids.update(actually_faulty)
+
+            # PhysicalEnclosure components have no electrical fault overlay, so
+            # actually_faulty will not include them even when their repositioning
+            # fixed the system.  Add them explicitly when lamp_on is True.
+            if lamp_on:
+                from diagnosable_systems_simulation.world.components import PhysicalEnclosure as _PE
+                enclosure_candidates = {
+                    cid for cid in candidate_ids
+                    if isinstance(sim.all_components().get(cid), _PE)
+                }
+                self._repaired_comp_ids.update(enclosure_candidates)
+
             if fault_snapshot is not None:
                 # test_repair() always restores the circuit to fault state on
                 # exit, so confirmed components are currently faulted again.
                 # Apply the repairs now so that restore_snapshot(exclude_ids)
                 # leaves those components in the repaired state.
                 sim.apply_repairs(self._repaired_comp_ids)
+                # For repositioned enclosures: set is_inverted=True before the
+                # snapshot restore so that restore_snapshot(exclude_ids=...) skips
+                # them and leaves is_inverted=True permanently.
+                from diagnosable_systems_simulation.world.components import PhysicalEnclosure as _PE2
+                for cid in self._repaired_comp_ids:
+                    comp = sim.all_components().get(cid)
+                    if isinstance(comp, _PE2):
+                        comp.is_inverted = True
                 sim.restore_snapshot(fault_snapshot, exclude_ids=self._repaired_comp_ids)
 
         # --- Build narrative --------------------------------------------------
@@ -372,7 +396,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         system: SystemDescription,
         state: AssistantState,
         root_cause_description: Optional[RootCauseDescription],
-    ) -> tuple[bool, Optional[RootCauseDescription]]:
+    ) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:
         """
         Termination check.  In addition to the patience-based safety cap,
         we check whether the system is already restored (lamp on).  This
@@ -385,17 +409,23 @@ class ServiceAgentSpiceSim(ServiceAgent):
             nominal_lit = getattr(sim, "_nominal_emitting_light", frozenset())
             if nominal_lit:
                 result = await asyncio.to_thread(sim.simulate)
-                if result.emitting_light >= nominal_lit:
+                # HACK: for the ambient-light-sensor system the coupling loop
+                # may not converge (flickering fault), so a non-converged
+                # result with the lamp appearing on is NOT a real fix.
+                # Gate the success check on convergence for that system only.
+                is_als = getattr(sim, "name", None) == "ambient_light_sensor"
+                has_loose = sim.context.extra.get("has_loose_connection", False)
+                if (not is_als or result.converged) and not has_loose and result.emitting_light >= nominal_lit:
                     self.logger.info(
                         "ServiceAgentSpiceSim: system_restored_via_action — "
                         "lamp is on, ending session as success."
                     )
-                    return (True, None)
+                    return (True, None, "Session ended: the system was restored but the root cause was not identified.")
 
         if self.annoyance_level >= self.patience_level:
             self.logger.info(
                 "ServiceAgentSpiceSim: patience exhausted, ending session."
             )
-            return (True, None)
+            return (True, None, "Session ended without identifying the root cause (patience cap reached).")
         self.annoyance_level += 1
-        return (False, None)
+        return (False, None, None)

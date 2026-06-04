@@ -263,6 +263,13 @@ class SaboteurLLMFaultTree(Saboteur):
                     "file_id": description.file_id
                 },
             )
+        elif description.image_b64:
+            input_item['content'].append(
+                {
+                    "type": "input_image",
+                    "image_url": f"data:image/png;base64,{description.image_b64}",
+                },
+            )
         conversation_start = [
             input_item
         ]

@@ -170,10 +170,10 @@ Do NOT reveal the actual root cause beyond what is needed to justify the outcome
             cost=HYPOTHESIS_VERIFICATION_COST,
         )
 
-    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: RootCauseDescription) -> tuple[bool, None]:
+    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: RootCauseDescription) -> tuple[bool, None, Optional[str]]:
         if self.annoyance_level >= self.patience_level:
             self.logger.info(
                 "The Service agent decides it is not worth using the tool...")
-            return (True, None)
+            return (True, None, "Session ended without identifying the root cause (patience cap reached).")
         self.annoyance_level += 1
-        return (False, None)
+        return (False, None, None)

@@ -12,9 +12,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from diagnosable_systems_simulation.systems.ten_cubes.factory import build_ten_cubes_system
-from diagnosable_systems_simulation.electrical_simulation.backend.stub import StubBackend
+from diagnosable_systems_simulation.electrical_simulation.backend.spice import PySpiceBackend
 from diagnosable_systems_simulation.actions.diagnostic_actions import MoveLED, ShortPorts
-from Implementations.scenarios import SCENARIOS
+from Implementations.fault_injections import SCENARIOS
 
 
 # ---------------------------------------------------------------------------
@@ -22,9 +22,9 @@ from Implementations.scenarios import SCENARIOS
 # ---------------------------------------------------------------------------
 
 def _build(extra_tools=None):
-    """Build 10-cubes system with a StubBackend (no ngspice needed)."""
+    """Build 10-cubes system with PySpiceBackend."""
     return build_ten_cubes_system(
-        backend=StubBackend(),
+        backend=PySpiceBackend(),
         extra_tools=extra_tools or set(),
     )
 

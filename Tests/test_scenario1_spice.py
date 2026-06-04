@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from diagnosable_systems_simulation.systems.three_cubes.factory import build_three_cubes_system
 from diagnosable_systems_simulation.actions.diagnostic_actions import ObserveComponent, OpenSwitch
-from Implementations.scenarios import SCENARIOS
+from Implementations.fault_injections import SCENARIOS
 
 
 # ---------------------------------------------------------------------------

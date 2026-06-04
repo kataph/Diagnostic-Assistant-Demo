@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "diagnosa
 import pytest
 from diagnosable_systems_simulation.systems.ten_cubes.factory import build_ten_cubes_system
 from diagnosable_systems_simulation.actions.fault_actions import ShortCircuit, DegradeComponent
-from Implementations.scenarios import SCENARIOS
+from Implementations.fault_injections import SCENARIOS
 
 
 def _get_scenario14():

@@ -16,7 +16,7 @@ def format_conversation_history(conversation_history) -> str:
             if item["type"] == "input_text":
                 out.append(item["text"])
             if item["type"] == "input_image":
-                out.append(item["file_id"])
+                out.append(item.get("file_id") or "[inline image]")
     return "\n".join(out)
 
 

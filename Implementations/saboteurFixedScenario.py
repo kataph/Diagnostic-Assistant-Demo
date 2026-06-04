@@ -2,7 +2,7 @@ from typing import Optional
 
 from environment_classes import Saboteur, SystemDescription, RootCauseDescription
 
-from .scenarios import SCENARIOS
+from .fault_injections import SCENARIOS
 
 
 class SaboteurFixedScenario(Saboteur):

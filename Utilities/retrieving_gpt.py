@@ -13,7 +13,7 @@ from openai import OpenAI
 CACHE_PATH = "embeddings_cache.pkl"
 
 EMBED_MODEL = "text-embedding-3-small"
-GEN_MODEL = "gpt-4.1-mini"
+GEN_MODEL = "gpt-4.1"
 TOKENIZER_MODEL = "cl100k_base"
 
 CHUNK_SIZE = 400        # tokens
@@ -99,6 +99,11 @@ def save_cache(cache, cache_path):
         pickle.dump(cache, f)
 
 
+def _make_cache_key(chunk_hash: str, embed_model: str) -> str:
+    """Cache key that binds a chunk hash to its embedding model."""
+    return f"{embed_model}::{chunk_hash}"
+
+
 def embed_texts(texts, client: OpenAI, embed_model: str):
     response = client.embeddings.create(
         model=embed_model,
@@ -130,7 +135,7 @@ def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_ove
     new_hashes = []
 
     for c in chunks:
-        if c["hash"] not in cache:
+        if _make_cache_key(c["hash"], embed_model) not in cache:
             new_texts.append(c["text"])
             new_hashes.append(c["hash"])
 
@@ -139,13 +144,13 @@ def get_chunks_and_embeddings(client: OpenAI, folder_path, chunk_size, chunk_ove
         new_embeddings = embed_texts(new_texts, client, embed_model)
 
         for h, emb in zip(new_hashes, new_embeddings):
-            cache[h] = np.array(emb)
+            cache[_make_cache_key(h, embed_model)] = np.array(emb)
 
         save_cache(cache, cache_path)
     else:
         print("No new chunks to embed.")
 
-    chunk_embeddings = np.array([cache[c["hash"]] for c in chunks])
+    chunk_embeddings = np.array([cache[_make_cache_key(c["hash"], embed_model)] for c in chunks])
 
     print(f"Index ready ({len(chunks)} chunks).")
 

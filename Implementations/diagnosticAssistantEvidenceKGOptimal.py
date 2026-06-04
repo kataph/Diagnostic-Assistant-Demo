@@ -70,7 +70,7 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                     "is parallel to the main load we assume that if it works correctly then "
                     "it is the main load to carry some issue. "
                     "Therefore, if you see the internal indicator lamp lit without issues, "
-                    f"at the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value}, "
+                    f"at the start of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value}, "
                     "to suggest that the main load has some problem. "
                     f"Instead, if the internal indicator lamp is not lit, append {SimplifiedOutcome.NOMINAL.value}. "
                     "Include exactly one of these two tokens."
@@ -82,9 +82,9 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                     "The test works as follows: if the lamp turns ON when only the selected "
                     "control modules are in the circuit, the subchain is functioning correctly. "
                     "If the lamp remains OFF, at least one module in the subchain is faulty. "
-                    f"Therefore: if the lamp is OFF, append {SimplifiedOutcome.ANOMALOUS.value}. "
-                    f"If the lamp is ON, append {SimplifiedOutcome.NOMINAL.value}. "
-                    "Include exactly one of these two tokens."
+                    f"Therefore: if the lamp is OFF, write {SimplifiedOutcome.ANOMALOUS.value}. "
+                    f"If the lamp is ON, write {SimplifiedOutcome.NOMINAL.value}. "
+                    "Include exactly one of these two tokens at the start of your reply."
                 )
             case _:
                 return (
@@ -92,8 +92,10 @@ class HeuristicTestingProcedure(DiagnosticPlan):
                     f"problem(s) {terminal_uri_parts_gpt(self.test2problem[action])}. "
                     "While you execute it, please keep a watchful eye for some anomalous "
                     "behavior that suggests the presence of the aforementioned problems. "
-                    f"At the end of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value} "
-                    f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL.value} if everything appears normal. "
+                    f"At the start of your response include the uppercase verdict token {SimplifiedOutcome.ANOMALOUS.value} "
+                    f"if you detect any such signs, or {SimplifiedOutcome.NOMINAL.value} if either "
+                    "(i)everything appears normal or (ii) you could not assess the presence of an "
+                    "anomaly due the test not being carried out properly or at all. "
                     "Include exactly one of these two tokens."
                 )
 
@@ -193,6 +195,30 @@ class AssistantStateKGO(AssistantState):
     executed_tests: list[str] = Field(default_factory=list)
 
 
+def _intersect_or_expand_via_closure(
+    implicated: set[str],
+    candidates: set[str],
+    ontology_path: str,
+    schema_path: str,
+) -> set[str]:
+    """
+    Return ``implicated & candidates``.  If that is empty, fall back to
+    implicated components that are sub-components (direct or transitive) of
+    some candidate — e.g. Switch6 ⊂ ControlModule6.
+    """
+    result = implicated & candidates
+    if result:
+        return result
+    for candidate in candidates:
+        closure = {str(c) for c in get_component_closure(
+            ontology_path=ontology_path,
+            schema_path=schema_path,
+            subject=URIRef(str(candidate)),
+        )}
+        result |= implicated & closure
+    return result
+
+
 class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
     """
     Diagnostic assistant based on greedy information gain heuristic.
@@ -253,7 +279,10 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
                             problem=URIRef(str(p)),
                         )
                     )
-                narrowed = self.state.current_candidates & implicated_components
+                narrowed = _intersect_or_expand_via_closure(
+                    implicated_components, self.state.current_candidates,
+                    self.configuration.KG_PATH, self.configuration.ONTOLOGY_PATH,
+                )
                 if narrowed:  # guard: never wipe candidates due to a KG gap
                     if narrowed != self.state.current_candidates:
                         self.logger.info(
@@ -319,11 +348,15 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
         # If a single problem remains and an anomaly was found, return all current candidates that are related to the problem, as an hypothesis
         if len(remaining_problems) == 1 and self.state.found_anomaly_in_current_candidates:
             sole_problem = next(iter(remaining_problems))
-            components = {str(x) for x in get_components_from_problem(
-                ontology_path=self.configuration.KG_PATH,
-                schema_path=self.configuration.ONTOLOGY_PATH,
-                problem = URIRef(str(sole_problem))
-            )} & self.state.current_candidates
+            components = _intersect_or_expand_via_closure(
+                {str(x) for x in get_components_from_problem(
+                    ontology_path=self.configuration.KG_PATH,
+                    schema_path=self.configuration.ONTOLOGY_PATH,
+                    problem=URIRef(str(sole_problem)),
+                )},
+                self.state.current_candidates,
+                self.configuration.KG_PATH, self.configuration.ONTOLOGY_PATH,
+            )
             self.state.last_hypothesized_problem = str(sole_problem)
             self.logger.info(
                 f"Single problem remaining: {terminal_uri_parts_gpt([sole_problem])}. "
@@ -681,7 +714,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
 
     if not all_components:
         raise ValueError(
-            f"No component found when querying kg at location {schema_path} with system {system}! Check if there even is such a system in the kg?")
+            f"No component found when querying kg at location {ontology_path} with system {system}! Check if there even is such a system in the kg?")
 
     logger.info(
         f"The set of all possible candidate components is: {[split_uri(x)[1] for x in all_components]}")
@@ -712,7 +745,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
     anomalousNominalExtractor = Agent(
         name="anomalousNominalExtractor",
         instructions=prompt,
-        tools=[function_tool(retrieve_component_context_tool)],
+        tools=[function_tool(retrieve_component_context_tool, failure_error_function=None)],
         output_type=AnomalousNominalExtractorOutput,
         model=configuration.NS_ASSISTANT_MODEL)
 
@@ -941,7 +974,7 @@ def get_finest_problems_tests_from_components(ontology_path: str, schema_path: s
 
 SELECT DISTINCT ?test ?problem ?cost
 WHERE {
-    ?subject (:failsVia|(:hasFunction/:defines))/:hasCause* ?problem .
+    ?subject :hasSubComponent*/(:failsVia|(:hasFunction/:defines))/:hasCause* ?problem .
     ?problem :hasTest|:hasRepairAction ?test .
     ?test :hasCost ?cost .
     

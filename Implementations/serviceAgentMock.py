@@ -35,8 +35,8 @@ class ServiceAgentMock(ServiceAgent):
             cost=HYPOTHESIS_VERIFICATION_COST,
         )
 
-    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
+    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:
         if self.mock_counter > self.mock_observations_number:
-            return True, RootCauseDescription(root_cause_description_proper="Mock root cause")
+            return True, RootCauseDescription(root_cause_description_proper="Mock root cause"), None
         self.mock_counter += 1
-        return False, None
+        return False, None, None
