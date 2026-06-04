@@ -60,13 +60,20 @@ class Configuration:
     # ensures that multiple instance will not share same client
     CLIENT: OpenAI = field(default_factory=OpenAI)
 
-    LOG_PATH: str = "Logs"
-    CHAT_PATH: str = "Chats"
+    LOG_PATH: str = "Logs/DebuggingLogs"
+    CHAT_PATH: str = "Logs/Chats"
+    TRAJECTORY_PATH: str = "Logs/Trajectories"
     LOG_FILE: str = field(
         default_factory=lambda: "DIAGNOSTIC_SCENARIO_RUN" + "_" + \
-        datetime.now().isoformat(timespec='seconds')
+        datetime.now().isoformat(timespec='milliseconds')
     )
     LOG_LEVEL: int = 20
+
+    def get_trajectory_log(self, scenario_id: int):
+        from Utilities.trajectory_log import TrajectoryLog
+        os.makedirs(self.TRAJECTORY_PATH, exist_ok=True)
+        path = os.path.join(self.TRAJECTORY_PATH, self.LOG_FILE + "_TRAJECTORY.json")
+        return TrajectoryLog(path, scenario_id)
 
     def get_chat_log(self) -> ChatLog:
         """Create and return a ChatLog writing to the same Logs directory."""
@@ -76,10 +83,16 @@ class Configuration:
 
     def get_file_handler(self) -> logging.FileHandler:
         """Creates the file handler to be shared by loggers related to the diagnostic scenarios ran with this configuration"""
-        os.makedirs(self.LOG_PATH, exist_ok=True)
-        file_handler = logging.FileHandler(os.path.join(
-            self.LOG_PATH, self.LOG_FILE), encoding="utf-8")
+        
+        from pathlib import Path
 
+        self.LOG_PATH = Path(self.LOG_PATH)
+        self.LOG_PATH.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(
+            self.LOG_PATH / self.LOG_FILE,
+            encoding="utf-8"
+        )
+        
         fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
         datefmt = "%Y-%m-%d %H:%M:%S"
         formatter = logging.Formatter(fmt=fmt, datefmt=datefmt)

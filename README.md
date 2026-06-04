@@ -73,7 +73,7 @@ They are listed in the file `requirements.txt`, which was generated with pipreqs
 
 ### Logging
 
-The overall managing of the interactions between the agents happens through an orchestrator component (`run_diagnostic_scenario` function). The orchestrator logs some high level information about each diagnostic scenario run. Each agent implementation logs entries about its own behavior. These entries are listed in files called `DIAGNOSTIC_SCENARIO_RUN_<timespan>`, in the log folder (default value: `Logs`)
+The overall managing of the interactions between the agents happens through an orchestrator component (`run_diagnostic_scenario` function). The orchestrator logs some high level information about each diagnostic scenario run. Each agent implementation logs entries about its own behavior. These entries are listed in files called `DIAGNOSTIC_SCENARIO_RUN_<timespan>`, in the log folder (default value: `Logs\DebuggingLogs`). More readable and succint version of the scenario runs are saved in the `Logs/Chats` folder.
 
 ## Video
 

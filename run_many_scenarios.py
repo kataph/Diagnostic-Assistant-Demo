@@ -6,12 +6,13 @@ import argparse
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 import re
 import statistics
 
-from Implementations.scenarios import SCENARIOS
+from Implementations.fault_injections import SCENARIOS
 from Utilities.formatting import to_PascalCase
 
 _out_file_lock = threading.Lock()
@@ -29,9 +30,14 @@ def run_scenario_multiple_times(
     assistant_model: str = "gpt-4.1",
     log_path: str | None = None,
     chat_path: str | None = None,
+    trajectory_path: str | None = None,
+    batch_size_of_same_scenario_runs: int = 1,
+    semaphore: threading.Semaphore | None = None,
 ) -> None:
     """
-    Run the diagnostic scenario n_runs times.
+    Run the diagnostic scenario n_runs times, in parallel batches of
+    batch_size_of_same_scenario_runs.  Runs within a batch are started 1 second
+    apart to guarantee unique timestamp-based filenames.
     """
     python_executable = sys.executable
 
@@ -74,12 +80,32 @@ def run_scenario_multiple_times(
         cmd += ["--log-path", log_path]
     if chat_path is not None:
         cmd += ["--chat-path", chat_path]
+    if trajectory_path is not None:
+        cmd += ["--trajectory-path", trajectory_path]
 
-    for i in range(n_runs):
-        print(f"Run {i + 1}/{n_runs} (forced-scenario={forced_scenario})...")
-        result = subprocess.run(cmd, cwd=base_dir)
+    def _single_run(run_idx: int) -> None:
+        if semaphore is not None:
+            semaphore.acquire()
+        try:
+            result = subprocess.run(cmd, cwd=base_dir)
+        finally:
+            if semaphore is not None:
+                semaphore.release()
         if result.returncode != 0:
-            print(f"Run {i + 1} failed with return code {result.returncode}.")
+            print(f"Run {run_idx} failed with return code {result.returncode}.")
+
+    for batch_start in range(0, n_runs, batch_size_of_same_scenario_runs):
+        batch = range(batch_start, min(batch_start + batch_size_of_same_scenario_runs, n_runs))
+        threads = []
+        for idx, i in enumerate(batch):
+            print(f"Run {i + 1}/{n_runs} (forced-scenario={forced_scenario})...")
+            t = threading.Thread(target=_single_run, args=(i + 1,))
+            t.start()
+            threads.append(t)
+            if idx < len(batch) - 1:
+                time.sleep(1)
+        for t in threads:
+            t.join()
 
 
 def get_last_n_log_files(log_dir: Path, n: int):
@@ -106,7 +132,9 @@ def parse_cost_and_length_from_log(log_path: Path) -> tuple[float, int]:
 
     match = re.search(r"Cost vector:\s*\[([^\]]+)\]", text)
     if not match:
-        raise ValueError(f"No cost vector found in log file: {log_path}")
+        # raise ValueError(f"No cost vector found in log file: {log_path}")
+        print(f"No cost vector found in log file: {log_path}, returning zero values")
+        return 0, 0
 
     vector_str = match.group(1)
     try:
@@ -204,7 +232,7 @@ def append_results(
 
 
 def write_separator(out_path: Path, label: str) -> None:
-    """Write a labelled separator line to out.txt."""
+    """Write a labelled separator line to batch_output_summary.txt."""
     with out_path.open("a", encoding="utf-8") as f:
         f.write(f"\n# {'=' * 30} {label} {'=' * 30}\n")
 
@@ -221,6 +249,7 @@ def main_args(
     service: str,
     saboteur: str = "FixedScenario",
     assistant_model: str = "gpt-4.1",
+    batch_size_of_same_scenario_runs: int = 1,
 ) -> None:
 
     target_scenarios = [s for s in SCENARIOS if s.id == forced_scenario]
@@ -236,6 +265,7 @@ def main_args(
             num_runs, base_dir, forced_scenario, assistant, rounds,
             system, service, saboteur, assistant_model,
             log_path=str(log_dir),
+            batch_size_of_same_scenario_runs=batch_size_of_same_scenario_runs,
         )
 
     log_files = get_last_n_log_files(log_dir, num_runs)
@@ -272,24 +302,37 @@ def main_args_parallel(
     saboteur: str = "FixedScenario",
     assistant_model: str = "gpt-4.1",
     chat_dir: Path | None = None,
+    trajectory_dir: Path | None = None,
+    batch_size_of_same_scenario_runs: int = 1,
+    max_concurrent_subprocesses: int | None = None,
 ) -> None:
     """
     Run each scenario ID in *forced_scenarios_list* with *num_runs* sequential
     runs, executing all scenario groups in parallel.
 
     Logs for scenario ID ``sid`` go into ``log_dir / str(sid)`` and chat logs
-    go into ``chat_dir / str(sid)`` (default: ``log_dir.parent / "Chats"``).
+    go into ``chat_dir / str(sid)`` (default: ``log_dir.parent / "Logs/Chats"``).
     Statistics for each scenario are written to *out_file* as they finish
     (protected by a lock).
     """
     if chat_dir is None:
-        chat_dir = log_dir.parent / "Chats"
+        chat_dir = log_dir.parent / "Logs/Chats"
+    if trajectory_dir is None:
+        trajectory_dir = log_dir.parent / "Logs/Trajectories"
+
+    semaphore = (
+        threading.Semaphore(max_concurrent_subprocesses)
+        if max_concurrent_subprocesses is not None
+        else None
+    )
 
     def _run_one(scenario_id: int) -> None:
-        scenario_log_dir = log_dir / str(scenario_id)
-        scenario_chat_dir = chat_dir / str(scenario_id)
+        scenario_log_dir = log_dir / assistant / str(scenario_id)
+        scenario_chat_dir = chat_dir / assistant / str(scenario_id)
+        scenario_trajectory_dir = trajectory_dir / assistant / str(scenario_id)
         scenario_log_dir.mkdir(parents=True, exist_ok=True)
         scenario_chat_dir.mkdir(parents=True, exist_ok=True)
+        scenario_trajectory_dir.mkdir(parents=True, exist_ok=True)
 
         target_scenarios = [s for s in SCENARIOS if s.id == scenario_id]
         if len(target_scenarios) != 1:
@@ -300,31 +343,41 @@ def main_args_parallel(
             return
         system = target_scenarios[0].system_name
 
-        if not skip_runs:
-            run_scenario_multiple_times(
-                num_runs, base_dir, scenario_id, assistant, rounds,
-                system, service, saboteur, assistant_model,
-                log_path=str(scenario_log_dir),
-                chat_path=str(scenario_chat_dir),
-            )
+        try:
+            if not skip_runs:
+                run_scenario_multiple_times(
+                    num_runs, base_dir, scenario_id, assistant, rounds,
+                    system, service, saboteur, assistant_model,
+                    log_path=str(scenario_log_dir),
+                    chat_path=str(scenario_chat_dir),
+                    trajectory_path=str(scenario_trajectory_dir),
+                    batch_size_of_same_scenario_runs=batch_size_of_same_scenario_runs,
+                    semaphore=semaphore,
+                )
 
-        log_files = get_last_n_log_files(scenario_log_dir, num_runs)
-        log_files_interval = log_files[0].name + " --> " + log_files[-1].name
-        mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate = (
-            compute_stats_from_logs(log_files)
-        )
-        with _out_file_lock:
-            append_results(
-                out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
-                scenario_id, system, log_files_interval,
-                mean_action_number, std_action_number, success_rate,
+            log_files = get_last_n_log_files(scenario_log_dir, num_runs)
+            log_files_interval = log_files[0].name + " --> " + log_files[-1].name
+            mean_cost, std_cost, mean_time, std_time, mean_action_number, std_action_number, success_rate = (
+                compute_stats_from_logs(log_files)
             )
+            with _out_file_lock:
+                append_results(
+                    out_file, mean_cost, std_cost, mean_time, std_time, num_runs,
+                    scenario_id, system, log_files_interval,
+                    mean_action_number, std_action_number, success_rate,
+                )
 
-        print(f"[scenario {scenario_id}] Processed {len(log_files)} log files.")
-        print(f"[scenario {scenario_id}] Mean total cost: {mean_cost:.6f}  (std {std_cost:.6f})")
-        print(f"[scenario {scenario_id}] Mean action number: {mean_action_number:.6f}  (std {std_action_number:.6f})")
-        print(f"[scenario {scenario_id}] Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
-        print(f"[scenario {scenario_id}] Success rate: {success_rate:.1%}")
+            print(f"[scenario {scenario_id}] Processed {len(log_files)} log files.")
+            print(f"[scenario {scenario_id}] Mean total cost: {mean_cost:.6f}  (std {std_cost:.6f})")
+            print(f"[scenario {scenario_id}] Mean action number: {mean_action_number:.6f}  (std {std_action_number:.6f})")
+            print(f"[scenario {scenario_id}] Mean suggestion time: {mean_time:.6f}  (std {std_time:.6f})")
+            print(f"[scenario {scenario_id}] Success rate: {success_rate:.1%}")
+        except Exception:
+            import traceback
+            print(
+                f"[scenario {scenario_id}] ERROR — results not recorded:\n"
+                + traceback.format_exc()
+            )
 
     threads = [threading.Thread(target=_run_one, args=(sid,)) for sid in forced_scenarios_list]
     for t in threads:
@@ -359,20 +412,20 @@ def main():
         raise ValueError("--forced-scenario must be >= 0")
 
     base_dir = Path(__file__).resolve().parent
-    log_dir = base_dir / "Logs"
-    out_file = base_dir / "out.txt"
+    # log_dir = base_dir / "Logs"
+    out_file = base_dir / "batch_output_summary.txt"
 
     main_args(
         args.num_runs, base_dir, args.forced_scenario, args.assistant,
-        args.rounds, args.skip_runs, log_dir, out_file,
+        args.rounds, args.skip_runs, out_file,
         args.service, args.saboteur, args.assistant_model,
     )
 
 
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parent
-    log_dir = base_dir / "Logs"
-    out_file = base_dir / "out.txt"
+    log_dir = base_dir / "Logs/DebuggingLogs"
+    out_file = base_dir / "batch_output_summary.txt"
 
     # ── SpiceSim service + LLM assistant ────────────────────────────────────
     
@@ -380,81 +433,181 @@ if __name__ == "__main__":
     # All scenarios that have simulation support (fault_fns defined).
     simulatable_ids = [s.id for s in SCENARIOS if s.fault_fns is not None]
     
-    # for scenario_id in [1,2,3,4,5,6,7,8,9]:
-    #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-    #     num_runs = 10
-    #     assistant = "LLM"
-    #     kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-    #     write_separator(
-    #         out_file,
-    #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    #     )
-    #     main_args(**kwargs)
+    # num_runs = 10
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [1,2,3,4,5,6,7],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
     
-    # for scenario_id in [8]:
-    #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-    #     num_runs = 1
-    #     assistant = "EvidenceKGOptimal"
-    #     kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-    #     write_separator(
-    #         out_file,
-    #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    #     )
-    #     main_args(**kwargs)
-
-    # Example: run scenarios 7, 8, 9 in parallel (each with 3 runs, in series per scenario)
-    num_runs = 1
-    assistant = "EvidenceKGOptimal"
-    parallel_kwargs = {
-        'num_runs': num_runs, 'base_dir': base_dir,
-        'forced_scenarios_list': [8,11],
-        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
-        'log_dir': log_dir, 'out_file': out_file,
-        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
-    }
-    write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    main_args_parallel(**parallel_kwargs)
+    # num_runs = 10
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [8,9,10,11,12,13,14],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
     
-    quit()
+    # num_runs = 10
+    # assistant = "LLM"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [1,2,3,4,5,6,7],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
     
+    # num_runs = 10
+    # assistant = "LLM"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [8,9,10,11,12,13,14],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    
+    
+    # num_runs = 10
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [15],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    
+    # num_runs = 1
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [11],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    
+    # num_runs = 10
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': [11,12],
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    # num_runs = 10
+    # scenarios = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    # batch_size = 1 # keep batch_size*len(scenarios) <= 10 
+    # assistant = "LLM"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': scenarios,
+    #     'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    #     'batch_size_of_same_scenario_runs': batch_size,
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    # num_runs = 10
+    # # scenarios = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    # scenarios = [15]
+    # batch_size = 10 # keep batch_size*len(scenarios) <= 10 
+    # rounds = 25
+    # assistant = "EvidenceKGOptimal"
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': scenarios,
+    #     'assistant': assistant, 'rounds': rounds, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    #     'batch_size_of_same_scenario_runs': batch_size,
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    # num_runs = 10
+    # # scenarios = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    # scenarios = [15]
+    # batch_size = 10 # keep batch_size*len(scenarios) <= 10 
+    # assistant = "LLM"
+    # rounds = 25
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': scenarios,
+    #     'assistant': assistant, 'rounds': rounds, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+    #     'batch_size_of_same_scenario_runs': batch_size,
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
+    # num_runs = 10
+    # scenarios = [15]
+    # batch_size = 10 # keep batch_size*len(scenarios) <= 10 or 15 
+    # assistant = "EvidenceKGOptimal"
+    # rounds = 10
+    # model = 'gpt-4.1'
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': scenarios,
+    #     'assistant': assistant, 'rounds': rounds, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': model,
+    #     'batch_size_of_same_scenario_runs': batch_size,
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)
     num_runs = 10
-    assistant = "EvidenceKGOptimal"
+    scenarios = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    batch_size = 2 # keep batch_size*len(scenarios) <= 10 or 15 
+    assistant = "LLM"
+    rounds = 10
+    model = 'gpt-4.1'
     parallel_kwargs = {
         'num_runs': num_runs, 'base_dir': base_dir,
-        'forced_scenarios_list': [8,9,10,11,12,13,14],
-        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
+        'forced_scenarios_list': scenarios,
+        'assistant': assistant, 'rounds': rounds, 'skip_runs': False,
         'log_dir': log_dir, 'out_file': out_file,
-        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
+        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': model,
+        'batch_size_of_same_scenario_runs': batch_size,
     }
     write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     main_args_parallel(**parallel_kwargs)
-    
-    num_runs = 10
-    assistant = "EvidenceKGOptimal"
-    parallel_kwargs = {
-        'num_runs': num_runs, 'base_dir': base_dir,
-        'forced_scenarios_list': [1,2,3,4,5,6,7],
-        'assistant': assistant, 'rounds': 10, 'skip_runs': False,
-        'log_dir': log_dir, 'out_file': out_file,
-        'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': 'gpt-4.1',
-    }
-    write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    main_args_parallel(**parallel_kwargs)
-    
-    # for scenario_id in [12,13,14]:
-    #     # print(f"\n=== Scenario {scenario_id} | SpiceSim + LLM ===")
-    #     num_runs = 10
-    #     assistant = "LLM"
-    #     kwargs = {'num_runs':num_runs, 'base_dir':base_dir, 'forced_scenario':scenario_id, 'assistant':assistant, 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-    #     write_separator(
-    #         out_file,
-    #         f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    #     )
-    #     main_args(**kwargs)
-    # kwargs = {'num_runs':1, 'base_dir':base_dir, 'forced_scenario':2, 'assistant':"LLM", 'rounds':10, 'skip_runs':False, 'log_dir':log_dir, 'out_file':out_file, 'service':"SpiceSim", 'saboteur':"SpiceSim", 'assistant_model':'gpt-4.1'}#"nf-gpt-4o-2024-08-06"}
-    # write_separator(
-    #     out_file,
-    #     f"kwargs={kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-    # )
-    # main_args(num_runs=2, base_dir=base_dir, forced_scenario=1, assistant="LLM", rounds=10, skip_runs=False, log_dir=log_dir, out_file=out_file, service="SpiceSim", saboteur="SpiceSim", assistant_model="gpt-4.1")
-    # main_args(**kwargs)
+    # num_runs = 10
+    # scenarios = [4]
+    # batch_size = 10 # keep batch_size*len(scenarios) <= 10 or 15 
+    # assistant = "LLM"
+    # rounds = 10
+    # model = 'gpt-4.1'
+    # parallel_kwargs = {
+    #     'num_runs': num_runs, 'base_dir': base_dir,
+    #     'forced_scenarios_list': scenarios,
+    #     'assistant': assistant, 'rounds': rounds, 'skip_runs': False,
+    #     'log_dir': log_dir, 'out_file': out_file,
+    #     'service': "SpiceSim", 'saboteur': "SpiceSim", 'assistant_model': model,
+    #     'batch_size_of_same_scenario_runs': batch_size,
+    # }
+    # write_separator(out_file, f"parallel kwargs={parallel_kwargs} --- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # main_args_parallel(**parallel_kwargs)

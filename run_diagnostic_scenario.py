@@ -4,6 +4,10 @@ import logging
 
 import rdflib
 
+import agents
+# to prevent tracing errors when using a proxy
+agents.set_tracing_disabled(True)
+
 from configuration import Configuration
 from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim
 from environment_classes import SystemDescription, run_diagnostic_scenario
@@ -33,7 +37,7 @@ def parse_configuration() -> Configuration:
     parser.add_argument("--kg", type=str, default=None,
                         help="Path to the kg file")
     parser.add_argument("--system", type=str, default="3CubesSystem",
-                        help="Terminal part of the whole-system IRI in the ontology file [3CubesSystem, 10CubesSystem, AmbientLightSensorSystem]")
+                        help="Terminal part of the whole-system IRI in the ontology file [3CubesSystem, 10CubesSystem, AmbientLightSensorSystem, CurrentSensorSystem, AsymmetricChainsSystem]")
     parser.add_argument("--namespace", type=str,
                         default="http://www.example.org/zorro/", help="Namespace IRI of the ontology")
     parser.add_argument("--diagram", type=str, default=None,
@@ -50,7 +54,7 @@ def parse_configuration() -> Configuration:
                         help="Number of tokens over which consecutive chunks overlap, for retrieval")
     parser.add_argument("--retrieving-cache", type=str,
                         default="embeddings_cache.pkl", help="Cache file for the embeddings")
-    parser.add_argument("--embed-model", type=str, default="text-embedding-3-small",
+    parser.add_argument("--embed-model", type=str, default="text-embedding-3-large",
                         help="Embedding model name for retrieval")
     parser.add_argument("--tokenizer-model", type=str,
                         default="cl100k_base", help="Tokenizer model name for retrieval")
@@ -85,10 +89,12 @@ def parse_configuration() -> Configuration:
     # parser.add_argument("--tester", action="store_true", help="Enable human tester mode")
     # parser.add_argument("--symptom-gen", action="store_true", help="Enable human symptom generation")
 
-    parser.add_argument("--log-path", type=str, default="Logs",
+    parser.add_argument("--log-path", type=str, default="Logs/DebuggingLogs",
                         help="Relative address of the folder for log files")
-    parser.add_argument("--chat-path", type=str, default="Chats",
+    parser.add_argument("--chat-path", type=str, default="Logs/Chats",
                         help="Relative address of the folder for chat files")
+    parser.add_argument("--trajectory-path", type=str, default="Logs/Trajectories",
+                        help="Relative address of the folder for trajectory JSON files")
     parser.add_argument("--log-level", type=int, default=20,
                         help="Sets the loggers level (default is INFO = 20)")
 
@@ -115,6 +121,7 @@ def parse_configuration() -> Configuration:
 
         LOG_PATH=args.log_path,
         CHAT_PATH=args.chat_path,
+        TRAJECTORY_PATH=args.trajectory_path,
         LOG_LEVEL=args.log_level,
         MAX_NUMBER_OF_ROUNDS=args.rounds,
         ONTOLOGY_NAMESPACE=rdflib.Namespace(args.namespace),
@@ -140,31 +147,51 @@ def parse_configuration() -> Configuration:
 configuration = parse_configuration()
 
 
-def get_vision_file_id(file_path, client):
+def get_vision_diagram(file_path, client) -> tuple[str | None, str | None]:
+    """
+    Return (file_id, image_b64) for the given diagram path.
+
+    Tries to upload the file to the OpenAI Files API first (preferred: the
+    uploaded file is cached on the server and reused across turns).  If that
+    fails (e.g. LiteLLM proxy without files_settings configured), falls back
+    to reading the file as a base64-encoded PNG that can be sent inline.
+    Returns (None, None) when no diagram path is provided.
+    """
     if not file_path:
-        return None
+        return None, None
     try:
         with open(file_path, "rb") as file_content:
             result = client.files.create(
                 file=file_content,
                 purpose="vision",
             )
-        return result.id
+        return result.id, None
     except Exception as exc:
         logging.warning(
             f"Could not upload diagram {file_path!r} to the vision API "
+            f"({type(exc).__name__}: {exc}). Falling back to inline base64."
+        )
+    try:
+        import base64
+        with open(file_path, "rb") as f:
+            return None, base64.b64encode(f.read()).decode("utf-8")
+    except Exception as exc:
+        logging.warning(
+            f"Could not read diagram {file_path!r} for base64 encoding "
             f"({type(exc).__name__}: {exc}). Proceeding without diagram."
         )
-        return None
+        return None, None
 
 
 with open(configuration.TEXT_INPUT_FILE) as f:
     _text_input = f.read()
-    
+
+_diagram_file_id, _diagram_b64 = get_vision_diagram(
+    configuration.DIAGRAM_PATH, configuration.CLIENT)
 system = SystemDescription(
     text_input=_text_input,
-    file_id=get_vision_file_id(
-        configuration.DIAGRAM_PATH, configuration.CLIENT),
+    file_id=_diagram_file_id,
+    image_b64=_diagram_b64,
 )
 
 # saboteur = SaboteurHuman(configuration) OK
@@ -221,9 +248,11 @@ scenario_logger.setLevel(configuration.LOG_LEVEL)
 scenario_logger.addHandler(configuration.get_file_handler())
 
 chat_log = configuration.get_chat_log()
+trajectory_log = configuration.get_trajectory_log(configuration.FORCED_SCENARIO_ID)
 
 asyncio.run(run_diagnostic_scenario(system, saboteur,
-            service_agent, assistant, scenario_logger, chat_log=chat_log))
+            service_agent, assistant, scenario_logger, chat_log=chat_log,
+            trajectory_log=trajectory_log))
 
 # clear; python -m run_diagnostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM
 
@@ -282,5 +311,104 @@ python -m run_diagnostic_scenario \
 --saboteur FixedScenario \
 --service LLM \
 --assistant LLM \
+--interface cli 
+"""
+
+####################################################
+####################################################
+# go to for 3 cubes
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
+--LLM-assistant-model "gpt-4.1" \
+--NS-assistant-model "gpt-4.1" \
+--log-level 10 \
+--rounds 10 \
+--system 3CubesSystem \
+--kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+--saboteur Human \
+--service Human \
+--assistant LLM \
+--interface cli 
+"""
+
+# go to for 10 cubes
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
+--LLM-assistant-model "gpt-4.1" \
+--NS-assistant-model "gpt-4.1" \
+--log-level 10 \
+--rounds 10 \
+--system 10CubesSystem \
+--kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
+--saboteur Human \
+--service Human \
+--assistant LLM \
+--interface cli 
+"""
+
+
+# go to for ambient light sensor
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor/ambient_light_sensor_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor/ambient_light_sensor_schematics.png" \
+--LLM-assistant-model "gpt-4.1" \
+--NS-assistant-model "gpt-4.1" \
+--log-level 10 \
+--rounds 10 \
+--system AmbientLightSensorSystem \
+--kg "Knowledge_sources/Structured_knowledge_sources/ambient_light_sensor/zorro-ontology-ambient-light-sensor-abox.ttl" \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor" \
+--saboteur Human \
+--service Human \
+--assistant LLM \
+--interface cli 
+"""
+
+####################################################
+
+# 3 cubes LLM - voice
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
+--LLM-assistant-model "gpt-4.1" \
+--NS-assistant-model "gpt-4.1" \
+--log-level 10 \
+--rounds 10 \
+--system 3CubesSystem \
+--kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
+--saboteur Human \
+--service Human \
+--assistant LLM \
+--interface voice 
+"""
+# 10 cubes symbolic - cli 
+"""
+python -m run_diagnostic_scenario \
+--text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
+--diagram "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
+--LLM-assistant-model "gpt-4.1" \
+--NS-assistant-model "gpt-4.1" \
+--log-level 10 \
+--rounds 10 \
+--system 10CubesSystem \
+--kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
+--ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
+--retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
+--saboteur Human \
+--service Human \
+--assistant EvidenceKGOptimal \
 --interface cli 
 """

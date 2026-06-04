@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
 from enum import Enum
 import logging
 
 from abc import ABC, abstractmethod
-from typing import Iterator, Literal, Optional
+from typing import Callable, Iterator, Literal, Optional
 from diagnosable_systems_simulation import DiagnosableSystem
+from diagnosable_systems_simulation.world.context import WorldContext
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from configuration import Configuration
@@ -25,7 +27,8 @@ HYPOTHESIS_VERIFICATION_COST: int = 120
 class SystemDescription(BaseModel):
     model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
     text_input: str
-    file_id: str | None = None
+    file_id: str | None = None       # OpenAI uploaded-file id (preferred when available)
+    image_b64: str | None = None     # Base64-encoded PNG fallback (used when upload fails)
     simulated_system: DiagnosableSystem | None = None
 
 
@@ -119,11 +122,14 @@ class SimplifiedOutcome(Enum):
     NOMINAL: str = "NOMINAL"
     
 class DiagnosticActionResult(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     action: DiagnosticAction
     outcome: str
     precise_action_cost: Optional[float] = None
     cost_breakdown: Optional[list[tuple[str, float]]] = None
     simplified_outcome: Optional[SimplifiedOutcome] = None
+    raw_results: Optional[list] = None
 
     def __str__(self):
         return (f"{{action name: {self.action.get_name()}, "+(f"action description: '{self.action.description}'" if self.action.description else "")+f" action result description: '{self.outcome}'}}")
@@ -193,6 +199,21 @@ class RootCauseDescription(BaseModel):
 
     def __str__(self):
         return self.__repr__()
+
+
+FaultFn = Callable[[DiagnosableSystem], None]
+
+
+@dataclass
+class Scenario:
+    number: int
+    scenario_id: str
+    system_name: str
+    system_config: str
+    root_cause: RootCauseDescription
+    fault_fns: Optional[list[FaultFn]]
+    world_context: WorldContext
+    system_config_fn: Optional[FaultFn] = field(default=None)
 
 
 class RootCauseHypothesis(BaseModel):
@@ -453,10 +474,14 @@ class ServiceAgent(ThingThatLogs):
         """
 
     @abstractmethod
-    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription]]:
+    async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:
         """
-        Return True with optional FaultDescription when the agent decides the diagnosis is done,
-        or False with None to continue.
+        Return (finished, root_cause, reason) where:
+          finished   — True when the agent decides the diagnosis is done.
+          root_cause — Optional confirmed root cause description.
+          reason     — Optional human-readable string explaining why the session
+                       is ending (logged and surfaced in the chat pill). None
+                       means no specific reason to record beyond the default.
         """
 
 
@@ -471,6 +496,7 @@ async def run_diagnostic_scenario(
     assistant: DiagnosticAssistant,
     scenario_logger: logging.Logger,
     chat_log=None,
+    trajectory_log=None,
 ) -> None:
     scenario_logger.info(
         f"A diagnostic scenario has been started with a saboteur of type {saboteur.description}, a service agent of type {service_agent.description}, and an assistant of type {assistant.description}")
@@ -501,18 +527,20 @@ async def run_diagnostic_scenario(
     suggested_actions_history: list[DiagnosticActionResult] = []
     time_vector: list[float] = []
     cost_vector: list[float] = []
+    finish_reason: Optional[str] = None
+    end_value: str = "surrender"
 
     while True:
+        start = perf_counter()
         suggestion = await assistant.suggest_action()
+        end = perf_counter()
+        time_vector.append(end - start)
 
         if isinstance(suggestion, DiagnosticFaultHypothesis):
             if chat_log:
                 chat_log.assistant_hypothesis(suggestion.suspected_components, suggestion.explanation)
             # Assistant is declaring a fault hypothesis — service agent verifies it.
-            start = perf_counter()
             verification = await service_agent.verify_hypothesis(system, suggestion, sabotage_root)
-            end = perf_counter()
-            time_vector.append(end - start)
             cost_vector.append(verification.cost)
             breakdown_str = (
                 " | cost_breakdown=" + " + ".join(
@@ -529,11 +557,14 @@ async def run_diagnostic_scenario(
                     verification.outcome, verification.narrative,
                     cost=verification.cost, cost_breakdown=verification.cost_breakdown,
                 )
+            if trajectory_log:
+                trajectory_log.record_hypothesis(suggestion, verification)
             await assistant.record_hypothesis_outcome(suggestion, verification)
 
             if verification.outcome == "correct":
                 # All faults found; system restored — end session.
-                assistant.finish_session(None)
+                end_value = "success"
+                assistant.finish_session(sabotage_root)
                 break
             # "partial" or "wrong": fall through to decide_finish so the
             # service agent can stop early (patience) or continue.
@@ -544,11 +575,8 @@ async def run_diagnostic_scenario(
                 if suggestion.reporting_requirements:
                     full_desc = full_desc + ("\n\n" if full_desc else "") + suggestion.reporting_requirements
                 chat_log.assistant_action(suggestion.type, suggestion.target, full_desc)
-            start = perf_counter()
             last_outcome = await service_agent.execute_action(system, suggestion, sabotage_root)
-            end = perf_counter()
             suggested_actions_history.append(last_outcome)
-            time_vector.append(end - start)
             cost_vector.append(
                 last_outcome.precise_action_cost
                 if last_outcome.precise_action_cost is not None
@@ -563,6 +591,8 @@ async def run_diagnostic_scenario(
                     else last_outcome.action.get_cost(),
                     cost_breakdown=last_outcome.cost_breakdown,
                 )
+            if trajectory_log:
+                trajectory_log.record_action(last_outcome)
             await assistant.record_action_outcome(last_outcome)
 
         else:  # suggestion is None
@@ -571,13 +601,20 @@ async def run_diagnostic_scenario(
                 chat_log.system("Assistant has no further actions to suggest.")
 
         # Ask service agent if it wants to finish.
-        user_finished, user_root = await service_agent.decide_finish(system, assistant.state, sabotage_root)
+        user_finished, user_root, finish_reason = await service_agent.decide_finish(system, assistant.state, sabotage_root)
         if user_finished:
             assistant.finish_session(user_root)
+            if finish_reason:
+                scenario_logger.info(f"Session ended by service agent: {finish_reason}")
+                if "system_restored_via_action" in finish_reason:
+                    end_value = "success_no_hypothesis"
+                else:
+                    end_value = "timeout"
             break
 
         if suggestion is None:
             # No further suggestions and agent chose to continue: auto-stop.
+            end_value = "surrender"
             print("No actions and agent chose to continue; that is, the user will continue the diagnosis and the assistant cannot help. Ending session automatically.")
             if chat_log:
                 chat_log.system("No further suggestions and service agent chose to continue — session ended automatically.")
@@ -600,12 +637,19 @@ async def run_diagnostic_scenario(
     scenario_logger.debug(
         f"Diagnostic memory: {assistant.state.diagnostic_scenario_memory} ")
 
+    total_cost = sum(cost_vector)
+    rounds = len(cost_vector)
+
     if chat_log:
-        rounds = len(cost_vector)
-        total  = sum(cost_vector)
         if not assistant.state.user_confirmed_root_cause:
-            chat_log.system("⏱ Session ended without identifying the root cause.")
-        chat_log.close(f"{rounds} round{'s' if rounds != 1 else ''} · total cost {total:.0f}")
+            if finish_reason:
+                chat_log.system(f"⏱ {finish_reason}")
+            else:
+                chat_log.system("⏱ Session ended without identifying the root cause.")
+        chat_log.close(f"{rounds} round{'s' if rounds != 1 else ''} · total cost {total_cost:.0f}")
+
+    if trajectory_log:
+        trajectory_log.close(end=end_value, total_cost=total_cost, length=rounds)
 
     # print("\nFull assistant state:")
     # print(assistant.state.model_dump(indent=2))
