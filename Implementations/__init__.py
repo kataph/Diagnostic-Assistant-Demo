@@ -9,6 +9,8 @@ from .serviceAgentMock import ServiceAgentMock
 from .saboteurFixedScenario import SaboteurFixedScenario
 from .saboteurSpiceSim import SaboteurSpiceSim
 from .serviceAgentSpiceSim import ServiceAgentSpiceSim
+from .diagnosticAssistantRandomTrajectory import DiagnosticAssistantRandomTrajectory
+from .serviceAgentSpiceSimMockNL import ServiceAgentSpiceSimMockNL
 
 __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
            "DiagnosticAssistantLLM",
@@ -20,4 +22,6 @@ __all__ = ["DiagnosticAssistantEvidenceKGOptimal",
            "ServiceAgentMock",
            "SaboteurFixedScenario",
            "SaboteurSpiceSim",
-           "ServiceAgentSpiceSim"]
+           "ServiceAgentSpiceSim",
+           "DiagnosticAssistantRandomTrajectory",
+           "ServiceAgentSpiceSimMockNL"]

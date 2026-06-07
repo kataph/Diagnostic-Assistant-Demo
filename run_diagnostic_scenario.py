@@ -9,7 +9,7 @@ import agents
 agents.set_tracing_disabled(True)
 
 from configuration import Configuration
-from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim
+from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim, DiagnosticAssistantRandomTrajectory, ServiceAgentSpiceSimMockNL
 from environment_classes import SystemDescription, run_diagnostic_scenario
 
 
@@ -224,6 +224,8 @@ match configuration.SERVICE_TYPE:
         service_agent = ServiceAgentMock(configuration)
     case 'SpiceSim':
         service_agent = ServiceAgentSpiceSim(configuration)
+    case 'SpiceSimMockNL':
+        service_agent = ServiceAgentSpiceSimMockNL(configuration)
     case _:
         raise ValueError(
             f'Unknown service agent type: {configuration.SERVICE_TYPE}')
@@ -234,6 +236,8 @@ match configuration.ASSISTANT_TYPE:
         assistant = DiagnosticAssistantLLM(system, configuration)
     case 'Mock':
         assistant = DiagnosticAssistantMock(system, configuration)
+    case 'RandomTrajectory':
+        assistant = DiagnosticAssistantRandomTrajectory(system, configuration)
     case _:
         raise ValueError(
             f'Unknown assistant type: {configuration.ASSISTANT_TYPE}')
@@ -245,6 +249,7 @@ match configuration.ASSISTANT_TYPE:
 
 scenario_logger = logging.getLogger("orchestrator")
 scenario_logger.setLevel(configuration.LOG_LEVEL)
+scenario_logger.propagate = False
 scenario_logger.addHandler(configuration.get_file_handler())
 
 chat_log = configuration.get_chat_log()

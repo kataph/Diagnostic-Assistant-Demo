@@ -3,6 +3,7 @@ python -m run_many_scenarios
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import threading
@@ -87,7 +88,13 @@ def run_scenario_multiple_times(
         if semaphore is not None:
             semaphore.acquire()
         try:
-            result = subprocess.run(cmd, cwd=base_dir)
+            env = {**os.environ, "TOKENIZERS_PARALLELISM": "false"}
+            result = subprocess.run(
+                cmd, cwd=base_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+            )
         finally:
             if semaphore is not None:
                 semaphore.release()

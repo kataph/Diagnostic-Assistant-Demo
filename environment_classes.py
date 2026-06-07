@@ -215,6 +215,10 @@ class Scenario:
     world_context: WorldContext
     system_config_fn: Optional[FaultFn] = field(default=None)
 
+    @property
+    def id(self) -> int:
+        return self.number
+
 
 class RootCauseHypothesis(BaseModel):
     component: str
@@ -337,6 +341,7 @@ class ThingThatLogs(ABC):
     def _setup_logger(self, configuration: Configuration) -> None:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(configuration.LOG_LEVEL)  # INFO is 20
+        self.logger.propagate = False  # don't leak to root logger / stderr
 
         self.logger.addHandler(configuration.get_file_handler())
 

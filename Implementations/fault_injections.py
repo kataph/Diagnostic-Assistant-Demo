@@ -232,12 +232,11 @@ def _10cubes_remove_ctrl_leds(sys: DiagnosableSystem) -> None:
 
 # 10CC.M.1: reversed battery + supply LED appears on (reversed LED polarity)
 def _10cubes_reverse_psu_led(sys: DiagnosableSystem) -> None:
-    """Swap anode/cathode node connections of psu_green_led so it lights when polarity is reversed."""
+    """Swap anode/cathode node IDs of psu_green_led so it lights when battery polarity is reversed."""
     led = sys.component("psu_green_led")
-    anode_node = led.port("anode").node_id
-    cathode_node = led.port("cathode").node_id
-    _apply(sys, DisconnectCable(port_names=["anode", "cathode"]), {"subject": led})
-    _apply(sys, ReconnectCable({"anode": cathode_node, "cathode": anode_node}), {"subject": led})
+    anode = led.port("anode")
+    cathode = led.port("cathode")
+    anode.node_id, cathode.node_id = cathode.node_id, anode.node_id
 
 
 # ---------------------------------------------------------------------------
@@ -289,8 +288,8 @@ def _stack_modules(sys: DiagnosableSystem) -> None:
 
 
 def _als_disconnect_relay_cable(sys: DiagnosableSystem) -> None:
-    """Disconnect the relay output port (n), breaking the 0V return path."""
-    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl_relay")})
+    """Force the ALS relay permanently open, breaking the 0V return path."""
+    _apply(sys, ForceSwitch(is_closed=False), {"subject": sys.component("ctrl_relay")})
 
 
 # ALS crossed cables: same as 3-cubes
@@ -309,8 +308,8 @@ def _als_remove_all_indicators(sys: DiagnosableSystem) -> None:
 # ---------------------------------------------------------------------------
 
 def _cs_disconnect_relay_cable(sys: DiagnosableSystem) -> None:
-    """Disconnect the relay output port (n), breaking the 0V return path."""
-    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl_relay")})
+    """Force the current-sensor relay permanently open, breaking the 0V return path."""
+    _apply(sys, ForceSwitch(is_closed=False), {"subject": sys.component("ctrl_relay")})
 
 
 def _cs_force_relay_open(sys: DiagnosableSystem) -> None:
