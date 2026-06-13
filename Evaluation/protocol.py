@@ -53,7 +53,7 @@ class ProtocolConfig:
     # Spec constants
     batch_size: int = 10
     initial_batches: int = 1
-    bootstrap_samples: int = 1000
+    bootstrap_samples: int = 100
     intra_batch_ari_percentile: float = 0.05
     convergence_window: int = 1
     ci_rel_width_threshold: float = 0.10
@@ -64,6 +64,7 @@ class ProtocolConfig:
         default_factory=lambda: [i / 20 for i in range(1, 20)]
     )
     max_batches_per_scenario: Optional[int] = None
+    allow_constant_batches: bool = False
 
     # Execution control
     interactive: bool = True
@@ -74,7 +75,9 @@ class ProtocolConfig:
 
     # Runner config (passed to run_diagnostic_scenario subprocesses)
     assistant_type: str = "RandomTrajectory"
-    assistant_model: str = "gpt-4.1"
+    assistant_config: dict = field(default_factory=dict)
+    service_config:   dict = field(default_factory=dict)
+    saboteur_config:  dict = field(default_factory=dict)
     service_type: str = "SpiceSimMockNL"
     rounds: int = 10
     base_dir: Path = field(default_factory=lambda: Path("."))
@@ -189,6 +192,42 @@ class AdaptiveEvaluationProtocol:
             with self._print_lock:
                 print(msg)
 
+    def _log_system_specs(self) -> None:
+        import platform
+        import sys
+        import importlib.metadata as meta
+
+        cpu = platform.processor() or platform.machine()
+        try:
+            import psutil
+            cores_physical = psutil.cpu_count(logical=False)
+            cores_logical  = psutil.cpu_count(logical=True)
+            ram_gb = round(psutil.virtual_memory().total / 1e9, 1)
+            mem_line = f"RAM: {ram_gb} GB"
+            cpu_line = f"CPU: {cpu} ({cores_physical} physical / {cores_logical} logical cores)"
+        except ImportError:
+            import os
+            cpu_line = f"CPU: {cpu} ({os.cpu_count()} logical cores)"
+            mem_line = "RAM: unknown (psutil not installed)"
+
+        packages = [
+            "openai", "rdflib", "owlready2", "hdbscan",
+            "scikit-learn", "scipy", "numpy", "sentence-transformers",
+        ]
+        pkg_versions = []
+        for p in packages:
+            try:
+                pkg_versions.append(f"{p}=={meta.version(p)}")
+            except meta.PackageNotFoundError:
+                pkg_versions.append(f"{p}==(not found)")
+
+        self._log(
+            f"System specs | OS: {platform.system()} {platform.release()} "
+            f"({platform.version()}) | {cpu_line} | {mem_line} | "
+            f"Python: {sys.version.split()[0]} | "
+            + " | ".join(pkg_versions)
+        )
+
     def _save_config(self) -> None:
         run_dir = (
             self.config.checkpoint_dir
@@ -219,6 +258,7 @@ class AdaptiveEvaluationProtocol:
         self._log(f"\nAdaptive Evaluation Protocol — run_id={self.config.protocol_run_id}")
         self._log(f"Scenarios: {scenario_numbers}")
         self._log(f"Batch size: {self.config.batch_size} | Window: {self.config.convergence_window}")
+        self._log_system_specs()
 
         # Shared semaphore across all scenario threads
         sem = (
@@ -380,6 +420,22 @@ class AdaptiveEvaluationProtocol:
         n_clusters_intent    = len(set(l for l in new_intent_labels if l >= 0))
         n_clusters_execution = len(set(new_exec_labels))
 
+        # Constant-behavior early stop: if all trajectories are identical on both
+        # levels, force convergence immediately without running more batches.
+        # Use raw sequence equality — cluster counts can be misleading (e.g.
+        # HDBSCAN returns 0 clusters on random mock embeddings even when all
+        # intent strings are identical).
+        if not self.config.allow_constant_batches:
+            all_exec_identical   = len(set(exec_seqs)) == 1
+            all_intent_identical = len(set(intent_seqs)) == 1
+            if all_exec_identical and all_intent_identical:
+                self._log(
+                    f"[Scenario {scenario_number}] Constant behavior detected across all "
+                    f"trajectories — converging immediately."
+                )
+                state.streak_intent    = self.config.convergence_window
+                state.streak_execution = self.config.convergence_window
+
         # Build execution distance matrix once — reused by all bootstrap resamplings
         exec_dist_matrix = np.zeros((n, n))
         for i in range(n):
@@ -397,10 +453,7 @@ class AdaptiveEvaluationProtocol:
                 min_cluster_size=self.config.hdbscan_min_cluster_size,
                 min_samples=self.config.hdbscan_min_samples,
             )
-            result = [-1] * n
-            for rank, orig_idx in enumerate(indices):
-                result[orig_idx] = labels_r[rank] if rank < len(labels_r) else -1
-            return result
+            return list(labels_r)
 
         def _exec_recluster(indices, dist_matrix):
             from scipy.cluster.hierarchy import linkage as scipy_linkage, fcluster
@@ -409,10 +462,10 @@ class AdaptiveEvaluationProtocol:
             sub = dist_matrix[np.ix_(indices, indices)]
             condensed = squareform(sub)
             if condensed.shape[0] == 0:
-                return [0] * n
+                return [0] * len(indices)
             Z_r = scipy_linkage(condensed, method=self.config.agglom_linkage)
             cut_grid = self.config.dendrogram_cut_grid or [i / 20 for i in range(1, 20)]
-            best_labels = np.arange(len(indices), dtype=int)
+            best_labels = np.zeros(len(indices), dtype=int)
             best_score = -2.0
             for height in cut_grid:
                 lbls = fcluster(Z_r, t=height, criterion="distance") - 1
@@ -423,10 +476,7 @@ class AdaptiveEvaluationProtocol:
                 if score > best_score:
                     best_score = score
                     best_labels = lbls
-            result = [0] * n
-            for rank, orig_idx in enumerate(indices):
-                result[orig_idx] = int(best_labels[rank]) if rank < len(best_labels) else 0
-            return result
+            return best_labels.tolist()
 
         from functools import partial
         ari_boot_p05_intent = bootstrap_ari_noise_floor(
@@ -594,13 +644,23 @@ class AdaptiveEvaluationProtocol:
 
         # Save execution-level dendrogram over all collected trajectories
         try:
+            from scipy.cluster.hierarchy import linkage as scipy_linkage
+            from scipy.spatial.distance import squareform
             exec_seqs = [execution_sequence(t) for t in trajectories]
             _, Z_exec, cut_exec, clustered_exec = cluster_execution(
                 exec_seqs,
                 linkage=self.config.agglom_linkage,
                 cut_grid=self.config.dendrogram_cut_grid,
             )
-            if Z_exec is not None and cut_exec is not None:
+            if Z_exec is None and clustered_exec:
+                # All sequences identical — build a trivial zero-height linkage
+                m = len(clustered_exec)
+                zero_condensed = squareform(np.zeros((m, m)))
+                Z_exec = scipy_linkage(zero_condensed, method=self.config.agglom_linkage)
+                cut_exec = 0.0
+            if cut_exec is None:
+                cut_exec = 0.0
+            if Z_exec is not None:
                 n_clusters_exec = last.get("n_clusters_execution", "?")
                 save_dendrogram(
                     Z=Z_exec,
@@ -623,7 +683,10 @@ class AdaptiveEvaluationProtocol:
                 embedding_model=self.config.embedding_model,
                 mock_embeddings=self.config.mock_embeddings,
             )
-            coords = PCA(n_components=2).fit_transform(embeddings_intent)
+            if np.allclose(embeddings_intent, embeddings_intent[0]):
+                coords = np.zeros((len(embeddings_intent), 2))
+            else:
+                coords = PCA(n_components=2).fit_transform(embeddings_intent)
             save_intent_scatter(
                 embeddings_2d=coords,
                 labels=state.cluster_assignments_intent,
@@ -681,7 +744,9 @@ class AdaptiveEvaluationProtocol:
             system=system_name,
             service=self.config.service_type,
             saboteur="SpiceSim",
-            assistant_model=self.config.assistant_model,
+            assistant_config=self.config.assistant_config,
+            service_config=self.config.service_config,
+            saboteur_config=self.config.saboteur_config,
             log_path=str(log_dir),
             chat_path=str(chat_dir),
             trajectory_path=str(traj_dir),

@@ -146,7 +146,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.debug(f"Added ServiceAgentSpiceSim own logger to the simulated_system. Spice circuits just before simulation should now appear in the logs")
         narrative, cost, _, _ = await asyncio.to_thread(
             nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, "collect_information", self.logger
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "collect_information", self.logger
         )
         self.logger.info(
             f"Initial simulation observation "
@@ -169,7 +169,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         nl_prompt = action.description or action.get_name()
         narrative, sim_cost, actions, results = await asyncio.to_thread(
             nl_run, nl_prompt, system.simulated_system,
-            self.configuration.LLM_ASSISTANT_MODEL, "collect_information", self.logger,
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "collect_information", self.logger,
             action.reporting_requirements,
         )
 
@@ -259,7 +259,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         _, sim_cost, entries, verify_results = await asyncio.to_thread(
             nl_run, verify_map_prompt, sim,
-            self.configuration.LLM_ASSISTANT_MODEL, "verify", self.logger
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "verify", self.logger
         )
         verify_breakdown = [(a.action_id, a.cost.time) for a, _, _ in verify_results]
         candidate_ids: set[str] = {
@@ -324,6 +324,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
             outcome = "wrong"
 
         # --- Persist confirmed repairs ----------------------------------------
+        repair_cost_time: float = 0.0
         if outcome in ("correct", "partial"):
             self._repaired_comp_ids.update(actually_faulty)
 
@@ -343,7 +344,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 # exit, so confirmed components are currently faulted again.
                 # Apply the repairs now so that restore_snapshot(exclude_ids)
                 # leaves those components in the repaired state.
-                sim.apply_repairs(self._repaired_comp_ids)
+                repair_cost_time = sim.apply_repairs(self._repaired_comp_ids).time
                 # For repositioned enclosures: set is_inverted=True before the
                 # snapshot restore so that restore_snapshot(exclude_ids=...) skips
                 # them and leaves is_inverted=True permanently.
@@ -387,7 +388,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
             hypothesis=hypothesis,
             outcome=outcome,
             narrative=narrative,
-            cost=sim_cost.time,
+            cost=repair_cost_time,
             cost_breakdown=verify_breakdown or None,
         )
 

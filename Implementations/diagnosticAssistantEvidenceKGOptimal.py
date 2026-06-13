@@ -233,7 +233,8 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
 
     @property
     def description(self) -> str:
-        return super().description + "_" + self.configuration.NS_ASSISTANT_MODEL
+        model = self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.NS_ASSISTANT_MODEL)
+        return super().description + "_" + model
 
     async def setup(self, observations: list[Observation]) -> None:
         if not self.configuration.ONTOLOGY_PATH:
@@ -729,25 +730,27 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
         :return: Some texts describing the component, taken from various sources. They are concatenated into a single string together with the names of their source documents 
         :rtype: str
         """
+        cfg = configuration.ASSISTANT_CONFIG
         return retrieve_component_context(
             component_description=component_description,
             logger=logger,
             client=configuration.CLIENT,
-            top_k=configuration.TOP_K,
+            top_k=cfg.get("top_k", configuration.TOP_K),
             folder_path=configuration.RETRIEVAL_FOLDER_PATH,
-            chunk_size=configuration.CHUNK_SIZE,
-            chunk_overlap=configuration.CHUNK_OVERLAP,
-            embed_model=configuration.EMBED_MODEL,
-            tokenizer_model=configuration.TOKENIZER_MODEL,
-            cache_path=configuration.CACHE_PATH,
+            chunk_size=cfg.get("chunk_size", configuration.CHUNK_SIZE),
+            chunk_overlap=cfg.get("chunk_overlap", configuration.CHUNK_OVERLAP),
+            embed_model=cfg.get("embed_model", configuration.EMBED_MODEL),
+            tokenizer_model=cfg.get("tokenizer_model", configuration.TOKENIZER_MODEL),
+            cache_path=cfg.get("cache_path", configuration.CACHE_PATH),
         )
 
+    _ns_model = configuration.ASSISTANT_CONFIG.get("model", configuration.NS_ASSISTANT_MODEL)
     anomalousNominalExtractor = Agent(
         name="anomalousNominalExtractor",
         instructions=prompt,
         tools=[function_tool(retrieve_component_context_tool, failure_error_function=None)],
         output_type=AnomalousNominalExtractorOutput,
-        model=configuration.NS_ASSISTANT_MODEL)
+        model=_ns_model)
 
     logger.debug(
         f"Entering in possibly cached with configuration.USE_CACHE {configuration.USE_CACHE}")
@@ -805,11 +808,9 @@ def get_qualitative_pieces_of_evidence_from_quantitative(pieces_of_evidence: dic
 
 def get_putative_failed_components_from_component_behaving_anomalously(ontology_path: str, schema_path: str, subject: URIRef, expand: bool = False) -> set[URIRef]:
     """
-    Given a component URI, return the set of components
+    Given a component URI, returns (in addition to the component itself) the set of components
     that the subject functionally depends on via:
-    hasSubComponent* / hasFunction / dependsOn* / ^hasFunction
-
-    Note that starting component is always included
+    hasSubComponent* / hasFunction / (dependsOn|:monitors)+ / ^hasFunction
     """
 
     query = """
@@ -817,7 +818,14 @@ def get_putative_failed_components_from_component_behaving_anomalously(ontology_
 
     SELECT DISTINCT ?object
     WHERE {
-        ?subject :hasSubComponent*/:hasFunction/(:dependsOn|:monitors)*/^:hasFunction ?object .
+      {
+        ?subject
+          :hasSubComponent*/:hasFunction/(:dependsOn|:monitors)+/^:hasFunction ?object
+      }
+      UNION
+      {
+        BIND(?subject AS ?object)
+      }
     }
     """
     return query_ontology_with_subject_object_query(ontology_path, schema_path, query, subject, expand)

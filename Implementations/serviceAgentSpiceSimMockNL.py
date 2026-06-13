@@ -189,6 +189,7 @@ class ServiceAgentSpiceSimMockNL(ServiceAgentSpiceSim):
         else:
             outcome = "wrong"
 
+        repair_cost_time: float = 0.0
         if outcome in ("correct", "partial"):
             self._repaired_comp_ids.update(actually_faulty)
             if lamp_on:
@@ -198,7 +199,7 @@ class ServiceAgentSpiceSimMockNL(ServiceAgentSpiceSim):
                     if isinstance(sim.all_components().get(cid), _PE)
                 )
             if fault_snapshot is not None:
-                sim.apply_repairs(self._repaired_comp_ids)
+                repair_cost_time = sim.apply_repairs(self._repaired_comp_ids).time
                 sim.restore_snapshot(fault_snapshot, exclude_ids=self._repaired_comp_ids)
 
         candidate_names = [
@@ -221,6 +222,6 @@ class ServiceAgentSpiceSimMockNL(ServiceAgentSpiceSim):
             hypothesis=hypothesis,
             outcome=outcome,
             narrative=narrative,
-            cost=sim_cost.time,
+            cost=repair_cost_time,
             cost_breakdown=verify_breakdown or None,
         )

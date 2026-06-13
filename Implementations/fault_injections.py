@@ -26,11 +26,13 @@ from pathlib import Path
 from typing import Optional
 
 from diagnosable_systems_simulation.actions.fault_actions import (
-    DegradeComponent, DisconnectCable, ForceSwitch, ReconnectCable, ShortCircuit,
+    DegradeComponent, DisconnectCable, ForceSwitch, ReconnectCable, ReverseBattery,
+    ShortCircuit, SwapCablePolarities,
 )
-from diagnosable_systems_simulation.electrical_simulation.circuit import CircuitGraph
-from diagnosable_systems_simulation.electrical_simulation.results import SimulationResult
-from diagnosable_systems_simulation.electrical_simulation.solver import PhysicalCoupling, SimulationRunner
+from diagnosable_systems_simulation.electrical_simulation.couplings import (
+    LooseConnectionCoupling, _add_loose_connection,
+)
+from diagnosable_systems_simulation.electrical_simulation.solver import SimulationRunner
 from diagnosable_systems_simulation.systems.base_system import DiagnosableSystem
 from diagnosable_systems_simulation.world.context import WorldContext
 
@@ -62,67 +64,6 @@ def _apply(sys: DiagnosableSystem, action, targets: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# LooseConnectionCoupling
-# ---------------------------------------------------------------------------
-
-class LooseConnectionCoupling(PhysicalCoupling):
-    """
-    Models an intermittent open circuit on a single cable port.
-
-    On each simulation step, the port is randomly disconnected with
-    probability *p* (default 0.5). When disconnected the port is
-    immediately reconnected before the next step so the simulation
-    can converge with either an open or closed connection.
-
-    The coupling also marks the system context so that
-    ServiceAgentSpiceSim.decide_finish() does not declare a false
-    success when the connection happens to be closed during a check.
-    """
-
-    def __init__(self, component_id: str, port_name: str, p: float = 0.5) -> None:
-        self.component_id = component_id
-        self.port_name = port_name
-        self.p = p
-        self._currently_disconnected = False
-        self._saved_node: Optional[int] = None
-
-    def apply(self, result: SimulationResult, graph: CircuitGraph, context: WorldContext) -> bool:
-        context.extra["has_loose_connection"] = True
-
-        if not graph.has_component(self.component_id):
-            return False
-
-        comp = graph.get_component(self.component_id)
-        port = next((p for p in comp.ports if p.name == self.port_name), None)
-        if port is None:
-            return False
-
-        if self._currently_disconnected:
-            # Reconnect
-            if self._saved_node is not None:
-                from diagnosable_systems_simulation.electrical_simulation.circuit import CircuitGraph as _CG
-                graph.reconnect_port(self.component_id, self.port_name, self._saved_node)
-            self._currently_disconnected = False
-            self._saved_node = None
-            return True
-        else:
-            # Randomly disconnect
-            if random.random() < self.p and port.is_connected():
-                self._saved_node = port.node_id
-                graph.disconnect_port(self.component_id, self.port_name)
-                self._currently_disconnected = True
-                return True
-            return False
-
-
-def _add_loose_connection(sys: DiagnosableSystem, component_id: str, port_name: str, p: float = 0.5) -> None:
-    """Attach a LooseConnectionCoupling and flag the context."""
-    coupling = LooseConnectionCoupling(component_id, port_name, p=p)
-    sys._runner.couplings.append(coupling)
-    sys.context.extra["has_loose_connection"] = True
-
-
-# ---------------------------------------------------------------------------
 # Generic primitives
 # ---------------------------------------------------------------------------
 
@@ -131,7 +72,7 @@ def _deplete_battery(sys: DiagnosableSystem) -> None:
 
 
 def _invert_battery(sys: DiagnosableSystem) -> None:
-    _apply(sys, DegradeComponent({"voltage": -12.0}), {"subject": sys.component("battery")})
+    _apply(sys, ReverseBattery(), {"subject": sys.component("battery")})
 
 
 def _burn_main_bulb(sys: DiagnosableSystem) -> None:
@@ -139,14 +80,10 @@ def _burn_main_bulb(sys: DiagnosableSystem) -> None:
 
 
 def _cross_psu_ctrl_cables(sys: DiagnosableSystem) -> None:
-    in_pos = sys.component("ctrl_cable_in_pos")
-    in_neg = sys.component("ctrl_cable_in_neg")
-    in_pos_p_node = in_pos.port("p").node_id
-    in_neg_p_node = in_neg.port("p").node_id
-    _apply(sys, DisconnectCable(port_names=["p"]), {"subject": in_pos})
-    _apply(sys, DisconnectCable(port_names=["p"]), {"subject": in_neg})
-    _apply(sys, ReconnectCable({"p": in_neg_p_node}), {"subject": in_pos})
-    _apply(sys, ReconnectCable({"p": in_pos_p_node}), {"subject": in_neg})
+    _apply(sys, SwapCablePolarities(port_name="p"), {
+        "cable_a": sys.component("ctrl_cable_in_pos"),
+        "cable_b": sys.component("ctrl_cable_in_neg"),
+    })
 
 
 def _disconnect_ctrl_cable_out_pos(sys: DiagnosableSystem) -> None:

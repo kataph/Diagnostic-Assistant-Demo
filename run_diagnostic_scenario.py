@@ -46,30 +46,39 @@ def parse_configuration() -> Configuration:
     # Retrieving
     parser.add_argument("--retrieval-folder", type=str, default=None,
                         help="Path to the folder with the documents for retrieval")
-    parser.add_argument("--top-k", type=int, default=4,
-                        help="Number of top chunks to be consedered during retrieval")
-    parser.add_argument("--chunk-size", type=int, default=400,
-                        help="Number of tokens of each chunk for retrieval")
-    parser.add_argument("--chunk-overlap", type=int, default=0,
-                        help="Number of tokens over which consecutive chunks overlap, for retrieval")
-    parser.add_argument("--retrieving-cache", type=str,
-                        default="embeddings_cache.pkl", help="Cache file for the embeddings")
-    parser.add_argument("--embed-model", type=str, default="text-embedding-3-large",
-                        help="Embedding model name for retrieval")
-    parser.add_argument("--tokenizer-model", type=str,
-                        default="cl100k_base", help="Tokenizer model name for retrieval")
+    parser.add_argument("--top-k", type=int, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"top_k\":N}' instead.")
+    parser.add_argument("--chunk-size", type=int, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"chunk_size\":N}' instead.")
+    parser.add_argument("--chunk-overlap", type=int, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"chunk_overlap\":N}' instead.")
+    parser.add_argument("--retrieving-cache", type=str, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"cache_path\":\"...\"}' instead.")
+    parser.add_argument("--embed-model", type=str, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"embed_model\":\"...\"}' instead.")
+    parser.add_argument("--tokenizer-model", type=str, default=None,
+                        help="[Deprecated] Use --assistant-config '{\"tokenizer_model\":\"...\"}' instead.")
 
-    # Neurosymolic assistant model
-    parser.add_argument("--NS-assistant-model", type=str, default="gpt-4.1",
-                        help="Model name for the Nneurosymbolic diagnostic assistant (it is used only for limited entity extraction and binary classification tasks)")
+    # Per-agent JSON config (preferred — agent documents its own accepted keys)
+    parser.add_argument("--assistant-config", type=str, default="{}",
+                        help="JSON string of config for the assistant agent, e.g. '{\"model\":\"gpt-4.1\",\"top_k\":3}'. "
+                             "Agent-specific keys override the deprecated individual flags below.")
+    parser.add_argument("--service-config", type=str, default="{}",
+                        help="JSON string of config for the service agent.")
+    parser.add_argument("--saboteur-config", type=str, default="{}",
+                        help="JSON string of config for the saboteur agent.")
 
-    # Diagnostic assistant model
-    parser.add_argument("--LLM-assistant-model", type=str, default="gpt-4.1",
-                        help="Model name for the LLM-monolithic diagnostic assistant")
+    # Neurosymolic assistant model (deprecated: use --assistant-config '{"model":"..."}')
+    parser.add_argument("--NS-assistant-model", type=str, default=None,
+                        help="[Deprecated] Model for EvidenceKGOptimal; use --assistant-config '{\"model\":\"...\"}' instead.")
 
-    # Service agent model
-    parser.add_argument("--LLM-service-model", type=str, default="gpt-4.1",
-                        help="Model name for the LLM-monolithic servige agent")
+    # Diagnostic assistant model (deprecated: use --assistant-config '{"model":"..."}')
+    parser.add_argument("--LLM-assistant-model", type=str, default=None,
+                        help="[Deprecated] Model for LLM assistant; use --assistant-config '{\"model\":\"...\"}' instead.")
+
+    # Service agent model (deprecated: use --service-config '{"model":"..."}')
+    parser.add_argument("--LLM-service-model", type=str, default=None,
+                        help="[Deprecated] Model for LLM service agent; use --service-config '{\"model\":\"...\"}' instead.")
 
     # Fixed saboteur scenario
     parser.add_argument("--forced-scenario", type=int, default=0,
@@ -100,24 +109,57 @@ def parse_configuration() -> Configuration:
 
     args = parser.parse_args()
 
-    # Instantiate the dataclass with parsed arguments
+    import json
+
+    def _parse_json_config(s: str, flag: str) -> dict:
+        try:
+            v = json.loads(s)
+            if not isinstance(v, dict):
+                raise ValueError("must be a JSON object")
+            return v
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"{flag}: invalid JSON — {e}") from e
+
+    # Parse the three agent config JSON strings
+    assistant_config = _parse_json_config(args.assistant_config, "--assistant-config")
+    service_config   = _parse_json_config(args.service_config,   "--service-config")
+    saboteur_config  = _parse_json_config(args.saboteur_config,  "--saboteur-config")
+
+    # Apply deprecated flags as fallbacks (only if not already set via JSON config)
+    if args.NS_assistant_model and "model" not in assistant_config:
+        assistant_config["model"] = args.NS_assistant_model
+    if args.LLM_assistant_model and "model" not in assistant_config:
+        assistant_config["model"] = args.LLM_assistant_model
+    if args.LLM_service_model and "model" not in service_config:
+        service_config["model"] = args.LLM_service_model
+    if args.top_k is not None and "top_k" not in assistant_config:
+        assistant_config["top_k"] = args.top_k
+    if args.chunk_size is not None and "chunk_size" not in assistant_config:
+        assistant_config["chunk_size"] = args.chunk_size
+    if args.chunk_overlap is not None and "chunk_overlap" not in assistant_config:
+        assistant_config["chunk_overlap"] = args.chunk_overlap
+    if args.retrieving_cache and "cache_path" not in assistant_config:
+        assistant_config["cache_path"] = args.retrieving_cache
+    if args.embed_model and "embed_model" not in assistant_config:
+        assistant_config["embed_model"] = args.embed_model
+    if args.tokenizer_model and "tokenizer_model" not in assistant_config:
+        assistant_config["tokenizer_model"] = args.tokenizer_model
+
+    # Resolve legacy Configuration fields from config dicts (for code that still reads them directly)
+    ns_model       = assistant_config.get("model", "gpt-4.1")
+    service_model  = service_config.get("model", "gpt-4.1")
+
     return Configuration(
         SABOTEUR_TYPE=args.saboteur,
         SERVICE_TYPE=args.service,
         ASSISTANT_TYPE=args.assistant,
         TEXT_INPUT_FILE=args.text_input_file,
-        # OUTPUT_DIRECTORY=args.output_dir,
         SYSTEM_NAME=args.system,
         ONTOLOGY_PATH=args.ontology,
         KG_PATH=args.kg,
         DIAGRAM_PATH=args.diagram,
         USE_CACHE=args.cache,
-        # HUMAN_TESTER=args.human_tester,
-        # HUMAN_SYMPTOM_GENERATOR=args.human_symptom_generator,
-        # BATCH_RUN_SIZE=args.batch_size,
-        # DIAGNOSTIC_ACTIONS_BATCH_SIZE=args.diag_batch_size,
         INTERFACE_MODE=args.interface,
-        # AGENTS_FORCED_TO_NO_CACHE=args.no_cache_agents
 
         LOG_PATH=args.log_path,
         CHAT_PATH=args.chat_path,
@@ -125,22 +167,24 @@ def parse_configuration() -> Configuration:
         LOG_LEVEL=args.log_level,
         MAX_NUMBER_OF_ROUNDS=args.rounds,
         ONTOLOGY_NAMESPACE=rdflib.Namespace(args.namespace),
-        SYSTEM_URL=rdflib.URIRef(base=rdflib.Namespace(
-            args.namespace), value=args.system),
+        SYSTEM_URL=rdflib.URIRef(base=rdflib.Namespace(args.namespace), value=args.system),
 
         RETRIEVAL_FOLDER_PATH=args.retrieval_folder,
-        TOP_K=args.top_k,
-        CHUNK_SIZE=args.chunk_size,
-        CHUNK_OVERLAP=args.chunk_overlap,
-        CACHE_PATH=args.retrieving_cache,
-        EMBED_MODEL=args.embed_model,
-        TOKENIZER_MODEL=args.tokenizer_model,
+        TOP_K=assistant_config.get("top_k", 4),
+        CHUNK_SIZE=assistant_config.get("chunk_size", 400),
+        CHUNK_OVERLAP=assistant_config.get("chunk_overlap", 0),
+        CACHE_PATH=assistant_config.get("cache_path", "embeddings_cache.pkl"),
+        EMBED_MODEL=assistant_config.get("embed_model", "text-embedding-3-large"),
+        TOKENIZER_MODEL=assistant_config.get("tokenizer_model", "cl100k_base"),
 
-        LLM_ASSISTANT_MODEL=args.LLM_assistant_model,
-        NS_ASSISTANT_MODEL=args.NS_assistant_model,
-        SERVICE_MODEL=args.LLM_service_model,
+        LLM_ASSISTANT_MODEL=ns_model,
+        NS_ASSISTANT_MODEL=ns_model,
+        SERVICE_MODEL=service_model,
         FORCED_SCENARIO_ID=args.forced_scenario,
 
+        ASSISTANT_CONFIG=assistant_config,
+        SERVICE_CONFIG=service_config,
+        SABOTEUR_CONFIG=saboteur_config,
     )
 
 

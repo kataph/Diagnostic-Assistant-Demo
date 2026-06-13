@@ -59,14 +59,6 @@ def bootstrap_ari_noise_floor(
         return 0.0
 
     ari_values: list[float] = []
-    ari_max = 0
-    ari_max_ref_labels = []
-    arg_ari_max = []
-    arg_boot_max = []
-    ari_min = 0
-    ari_min_ref_labels = []
-    arg_ari_min = []
-    arg_boot_min = []
     for _ in range(n_resamples):
         indices = [random.randrange(n) for _ in range(n)]
         if clustering_fn is not None:
@@ -79,28 +71,8 @@ def bootstrap_ari_noise_floor(
         except Exception:
             ari = 0.0
         ari_values.append(ari)
-        if ari_max < ari: 
-            ari_max = ari
-            ari_max_ref_labels = ref_labels
-            arg_ari_max = indices
-            arg_boot_max = boot_labels
-        if ari_min > ari: 
-            ari_min = ari
-            ari_min_ref_labels = ref_labels
-            arg_ari_min = indices
-            arg_boot_min = boot_labels
 
     ari_values.sort()
-    open("delete.txt","a").write(clustering_fn.func.__name__ if hasattr(clustering_fn, "func") else clustering_fn.__name__)
-    open("delete.txt","a").write("\n")
-    open("delete.txt","a").write(f"assigments  {assignments}")
-    open("delete.txt","a").write("\n")
-    open("delete.txt","a").write(f"ari_max = {ari_max} achieved over indices {arg_ari_max}\n with boot labels {arg_boot_max}\n and ref labels {ari_max_ref_labels}")
-    open("delete.txt","a").write("\n")
-    open("delete.txt","a").write(f"ari_min = {ari_min} achieved over indices {arg_ari_min}\n with boot labels {arg_boot_min}\n and ref labels {ari_min_ref_labels}")
-    open("delete.txt","a").write("\n")
-    open("delete.txt","a").write(str(ari_values))
-    open("delete.txt","a").write("\n")
     idx = int(percentile * n_resamples)
     idx = max(0, min(idx, n_resamples - 1))
     return ari_values[idx]

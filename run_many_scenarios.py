@@ -28,7 +28,9 @@ def run_scenario_multiple_times(
     system: str,
     service: str,
     saboteur: str = "FixedScenario",
-    assistant_model: str = "gpt-4.1",
+    assistant_config: dict | None = None,
+    service_config: dict | None = None,
+    saboteur_config: dict | None = None,
     log_path: str | None = None,
     chat_path: str | None = None,
     trajectory_path: str | None = None,
@@ -40,6 +42,7 @@ def run_scenario_multiple_times(
     batch_size_of_same_scenario_runs.  Runs within a batch are started 1 second
     apart to guarantee unique timestamp-based filenames.
     """
+    import json as _json
     python_executable = sys.executable
 
     cmd = [
@@ -50,10 +53,12 @@ def run_scenario_multiple_times(
         f"Knowledge_sources/Unstructured_knowledge_sources/{system}/{system}_description.txt",
         "--diagram",
         f"Knowledge_sources/Unstructured_knowledge_sources/{system}/{system}_schematics.png",
-        "--LLM-assistant-model",
-        assistant_model,
-        "--NS-assistant-model",
-        assistant_model,
+        "--assistant-config",
+        _json.dumps(assistant_config or {}),
+        "--service-config",
+        _json.dumps(service_config or {}),
+        "--saboteur-config",
+        _json.dumps(saboteur_config or {}),
         "--forced-scenario",
         str(forced_scenario),
         "--log-level",
@@ -92,14 +97,19 @@ def run_scenario_multiple_times(
             result = subprocess.run(
                 cmd, cwd=base_dir,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 env=env,
             )
         finally:
             if semaphore is not None:
                 semaphore.release()
         if result.returncode != 0:
-            print(f"Run {run_idx} failed with return code {result.returncode}.")
+            stderr = (result.stderr or b"").decode(errors="replace").strip()
+            print(
+                f"Run {run_idx} failed with return code {result.returncode}.\n"
+                f"Command: {' '.join(str(a) for a in cmd)}\n"
+                f"Stderr:\n{stderr}"
+            )
 
     for batch_start in range(0, n_runs, batch_size_of_same_scenario_runs):
         batch = range(batch_start, min(batch_start + batch_size_of_same_scenario_runs, n_runs))

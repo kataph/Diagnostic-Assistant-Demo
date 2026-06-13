@@ -77,13 +77,13 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
                 "it may happen they do not suffer from an interal fault, but from some configuration "
                 "issue)."
             ),
-            model=self.configuration.LLM_ASSISTANT_MODEL,
+            model=self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.LLM_ASSISTANT_MODEL),
             output_type=DiagnosticSuggestion,
         )
 
     @property
     def description(self) -> str:
-        return super().description + "_" + self.configuration.LLM_ASSISTANT_MODEL
+        return super().description + "_" + self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.LLM_ASSISTANT_MODEL)
 
     async def setup(self, observations: list[Observation]) -> None:
         self.state.initial_observations = observations.copy()

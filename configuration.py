@@ -44,6 +44,13 @@ class Configuration:
 
     SERVICE_MODEL: str = "gpt-4.1"
 
+    # Per-agent config dicts — each agent reads its own keys with .get(key, default).
+    # Passed via --assistant-config / --service-config / --saboteur-config JSON strings.
+    # Values here take precedence over the individual model/RAG flags above.
+    ASSISTANT_CONFIG: dict = field(default_factory=dict)
+    SERVICE_CONFIG:   dict = field(default_factory=dict)
+    SABOTEUR_CONFIG:  dict = field(default_factory=dict)
+
     FORCED_SCENARIO_ID: int = 0
 
     USE_CACHE: bool = False

@@ -51,7 +51,7 @@ class ServiceAgentLLM(ServiceAgent):
         self.patience_level = configuration.MAX_NUMBER_OF_ROUNDS - \
             1  # simulates an user patience
         self.annoyance_level = 0  # simulates an user patience
-        self.service_model = configuration.SERVICE_MODEL
+        self.service_model = configuration.SERVICE_CONFIG.get("model", configuration.SERVICE_MODEL)
         self.serviceAgent = Agent(
             name="ConstrainedInputTester",
             instructions="""You are an engineer expert in simulating diagnosis scenarios. You will receive in input a description of an engineered system and a description of the fault that the system is currently suffering from. Your job is to train another engineer in diagnosing the system. To do so, the trainee will hypothesize a single diagnostic action to carry out on the system to determine the root cause of the fault. The diagnostic action will be given as an (action_type, action_target, action_description) tuple. You have to answer your colleague with the results of the diagnostic action.

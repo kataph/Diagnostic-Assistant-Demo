@@ -4,18 +4,21 @@ Entry point for the Adaptive Evaluation Protocol (Specification v4).
 Usage examples
 --------------
 # Test run with mocks (no LLM, no real embeddings, 1 scenario only)
-python -m run_evaluation_protocol --scenarios 1 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 10 --rounds 5 --mock-llm-labels --mock-embeddings --no-interactive --max-batches 3
+python -m run_evaluation_protocol --scenarios 1 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 10 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Test run with mocks (no LLM, no real embeddings)
-python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --no-interactive --max-batches 3
+python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Test run with mocks, all scenarios
-python -m run_evaluation_protocol --all-scenarios --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --no-interactive --max-batches 3
+python -m run_evaluation_protocol --all-scenarios --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Resume a previous run
-python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --no-interactive --max-batches 5 --resume 20260604T123456
+python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 5 --resume 20260604T123456
 
-# Real run with LLM assistant (interactive, with approval gate)
+# Real run, fully automated (default)
+python -m run_evaluation_protocol --all-scenarios --assistant LLM --service SpiceSim --batch-size 10 --rounds 10
+
+# Real run with manual approval gate before each batch
 python -m run_evaluation_protocol --all-scenarios --assistant LLM --service SpiceSim --batch-size 10 --rounds 10 --interactive
 """
 import argparse
@@ -43,13 +46,17 @@ def _parse_args() -> argparse.Namespace:
                         help="Assistant type: RandomTrajectory | LLM | EvidenceKGOptimal")
     parser.add_argument("--service", type=str, default="SpiceSimMockNL",
                         help="Service agent type: SpiceSimMockNL | SpiceSim")
-    parser.add_argument("--assistant-model", type=str, default="gpt-4.1",
-                        help="LLM model for the assistant (used if assistant=LLM)")
+    parser.add_argument("--assistant-config", type=str, default="{}",
+                        help="JSON config for the assistant agent, e.g. '{\"model\":\"gpt-4.1\"}'")
+    parser.add_argument("--service-config", type=str, default="{}",
+                        help="JSON config for the service agent")
+    parser.add_argument("--saboteur-config", type=str, default="{}",
+                        help="JSON config for the saboteur agent")
 
     # Protocol parameters
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--initial-batches", type=int, default=1)
-    parser.add_argument("--bootstrap-samples", type=int, default=1000)
+    parser.add_argument("--bootstrap-samples", type=int, default=100)
     parser.add_argument("--convergence-window", type=int, default=1)
     parser.add_argument("--max-batches", type=int, default=None,
                         help="Hard cap on batches per scenario (default: unlimited)")
@@ -73,9 +80,11 @@ def _parse_args() -> argparse.Namespace:
 
     # Interaction
     parser.add_argument("--interactive", action="store_true", default=False,
-                        help="Prompt for manual approval before each batch")
-    parser.add_argument("--no-interactive", action="store_true", default=False,
-                        help="Disable interactive approval (fully automated)")
+                        help="Prompt for manual approval before each batch (default: fully automated)")
+    parser.add_argument("--allow-constant-batches", action="store_true", default=False,
+                        help="Disable constant-behavior early stop (by default, a batch where "
+                             "all trajectories are identical on both intent and execution levels "
+                             "triggers immediate convergence without collecting further batches)")
 
     # Mocking
     parser.add_argument("--mock-llm-labels", action="store_true", default=False,
@@ -110,10 +119,23 @@ def main() -> None:
         print("ERROR: No simulatable scenarios found.")
         sys.exit(1)
 
-    # Interactive flag: --interactive wins over --no-interactive
-    interactive = args.interactive or not args.no_interactive
-    if args.no_interactive:
-        interactive = False
+    interactive = args.interactive
+
+    import json as _json
+
+    def _parse_agent_config(s: str, flag: str) -> dict:
+        try:
+            v = _json.loads(s)
+            if not isinstance(v, dict):
+                raise ValueError("must be a JSON object")
+            return v
+        except (_json.JSONDecodeError, ValueError) as e:
+            print(f"ERROR: {flag}: invalid JSON — {e}")
+            sys.exit(1)
+
+    assistant_config = _parse_agent_config(args.assistant_config, "--assistant-config")
+    service_config   = _parse_agent_config(args.service_config,   "--service-config")
+    saboteur_config  = _parse_agent_config(args.saboteur_config,  "--saboteur-config")
 
     from datetime import datetime
     run_id = args.resume if args.resume else datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -129,7 +151,9 @@ def main() -> None:
         trajectory_base_dir=Path(args.trajectory_dir),
         protocol_run_id=run_id,
         assistant_type=args.assistant,
-        assistant_model=args.assistant_model,
+        assistant_config=assistant_config,
+        service_config=service_config,
+        saboteur_config=saboteur_config,
         service_type=args.service,
         rounds=args.rounds,
         base_dir=Path(__file__).resolve().parent,
@@ -137,6 +161,7 @@ def main() -> None:
         mock_embeddings=args.mock_embeddings,
         embedding_model=args.embedding_model,
         max_concurrent_subprocesses=args.max_concurrent,
+        allow_constant_batches=args.allow_constant_batches,
     )
 
     protocol = AdaptiveEvaluationProtocol(config)

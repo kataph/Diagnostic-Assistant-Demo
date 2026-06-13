@@ -15,6 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+# model used to label clusters
+LABELING_MODEL = "gpt-4.1"
 
 # ---------------------------------------------------------------------------
 # Sequence extraction from trajectory JSON dicts
@@ -80,8 +82,11 @@ def _hdbscan_on_dist(
 ) -> tuple[list[int], Optional[np.ndarray]]:
     """Run HDBSCAN on a precomputed cosine distance matrix."""
     import hdbscan
-    if dist_matrix.shape[0] == 0:
+    n = dist_matrix.shape[0]
+    if n == 0:
         return [], None
+    if dist_matrix.max() == 0.0:
+        return [0] * n, np.ones(n)
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
@@ -143,10 +148,10 @@ def label_clusters_llm(
         representative = sequences[best_idx]
 
         try:
-            import anthropic
-            client = anthropic.Anthropic()
-            msg = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+            from openai import OpenAI
+            client = OpenAI()
+            resp = client.chat.completions.create(
+                model=LABELING_MODEL,
                 max_tokens=40,
                 messages=[{
                     "role": "user",
@@ -156,7 +161,7 @@ def label_clusters_llm(
                     ),
                 }],
             )
-            result[cid] = msg.content[0].text.strip()
+            result[cid] = resp.choices[0].message.content.strip()
         except Exception as e:
             result[cid] = f"Cluster {cid} (label error: {e})"
 
@@ -245,7 +250,7 @@ def cluster_execution(
     # Singleton clusters (1 member each) are assigned silhouette = 0.0 — they
     # are valid but uninformative; any cut with natural groupings will score higher.
     best_score = -2.0
-    best_labels = np.arange(n_unique, dtype=int)  # fallback: one cluster per unique seq
+    best_labels = np.zeros(n_unique, dtype=int)  # fallback: one cluster for all
     best_cut_height: Optional[float] = None
     for height in cut_grid:
         labels = fcluster(Z, t=height, criterion="distance") - 1  # 0-based
