@@ -4,7 +4,10 @@ Produces human-readable text summaries (no HTML, no PDF).
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from Evaluation.qualitative import QualitativeReport
 
 
 def format_iteration_report(
@@ -61,6 +64,7 @@ def format_final_report(
     numerical_metrics: dict,
     batch_history: list[dict],
     reason: str = "converged",
+    qualitative_report: Optional["QualitativeReport"] = None,
 ) -> str:
     lines = [
         f"{'#'*60}",
@@ -84,6 +88,55 @@ def format_final_report(
                 lo = val.get("ci_lo")
                 hi = val.get("ci_hi")
                 lines.append(f"    {key}: {pt}  CI=[{lo}, {hi}]")
+
+    if qualitative_report is not None:
+        lines.append("")
+        lines.append("-" * 60)
+        lines.append("QUALITATIVE ANALYSIS")
+        lines.append("-" * 60)
+
+        # Rubric evaluation
+        if qualitative_report.rubric_scores:
+            lines.append("")
+            lines.append("[Rubric Evaluation]")
+            for rs in qualitative_report.rubric_scores:
+                lines.append(f"  Cluster {rs.cluster_id} — {rs.cluster_label}")
+                for dim_name, dim in [
+                    ("Actionability",        rs.actionability),
+                    ("Diagnostic coherence", rs.diagnostic_coherence),
+                    ("Efficiency",           rs.efficiency),
+                    ("Consistency",          rs.consistency),
+                    ("Evidence usage",       rs.evidence_usage),
+                ]:
+                    lines.append(f"    {dim_name:<22} {dim.rating:<6} — {dim.rationale}")
+                lines.append(f"    Comment: {rs.overall_comment}")
+
+        # Gold standard comparison
+        if qualitative_report.gold_comparisons:
+            lines.append("")
+            lines.append("[Gold Standard Comparison]")
+            for gc in qualitative_report.gold_comparisons:
+                lines.append(f"  Cluster {gc.cluster_id} — {gc.cluster_label}")
+                lines.append(f"    Fault:  {gc.injected_fault}")
+                lines.append(f"    Gold:   {gc.gold_diagnosis}")
+                lines.append(f"    Match:  {gc.match_level} — {gc.explanation}")
+
+        # Emergent findings
+        ef = qualitative_report.emergent_findings
+        if ef is not None:
+            lines.append("")
+            lines.append("[Emergent Findings]")
+            for section, items in [
+                ("Failure modes",     ef.failure_modes),
+                ("Novel strategies",  ef.novel_strategies),
+                ("Inefficiencies",    ef.inefficiencies),
+                ("Candidate metrics", ef.candidate_metrics),
+            ]:
+                if items:
+                    lines.append(f"  {section}:")
+                    for item in items:
+                        lines.append(f"    • {item}")
+
     return "\n".join(lines)
 
 

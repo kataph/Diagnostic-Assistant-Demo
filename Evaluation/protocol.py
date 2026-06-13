@@ -41,6 +41,7 @@ from Evaluation.metrics import (
     compute_numerical_metrics,
 )
 from Evaluation.report import format_final_report, format_iteration_report
+from Evaluation.qualitative import QualitativeReport, run_qualitative_analysis
 from Implementations.fault_injections import SCENARIOS
 
 
@@ -89,6 +90,11 @@ class ProtocolConfig:
     mock_llm_labels: bool = False
     mock_embeddings: bool = False
     embedding_model: str = "all-MiniLM-L6-v2"
+    labeling_model: str = "gpt-4.1"
+
+    # Qualitative analysis (Section 8)
+    run_qualitative: bool = True
+    qualitative_model: str = "gpt-4.1"
 
     # Parallelism — defaults to CPU count; lower for RAM-constrained machines,
     # set to ~10 for real LLM runs to stay within OpenAI rate limits.
@@ -611,10 +617,27 @@ class AdaptiveEvaluationProtocol:
                 state.cluster_assignments_intent,
                 probabilities=None,
                 mock=self.config.mock_llm_labels,
+                labeling_model=self.config.labeling_model,
             )
 
         last = state.batch_history[-1]
         numerical = last.get("numerical_metrics", {})
+
+        # Section 8: qualitative analysis
+        qual_report: Optional[QualitativeReport] = None
+        if self.config.run_qualitative and not self.config.mock_llm_labels:
+            try:
+                qual_report = run_qualitative_analysis(
+                    scenario_number=scenario_number,
+                    trajectories=trajectories,
+                    cluster_assignments_intent=state.cluster_assignments_intent or [],
+                    cluster_probabilities=None,
+                    cluster_labels=cluster_labels or {},
+                    model=self.config.qualitative_model,
+                    output_dir=ckpt_path.parent,
+                )
+            except Exception as exc:
+                self._log(f"[Scenario {scenario_number}] Warning: qualitative analysis failed: {exc}")
 
         reason = (
             "converged" if state.converged
@@ -634,6 +657,7 @@ class AdaptiveEvaluationProtocol:
             numerical_metrics=numerical,
             batch_history=state.batch_history,
             reason=reason,
+            qualitative_report=qual_report,
         )
         self._log(report)
 

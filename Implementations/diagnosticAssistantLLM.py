@@ -31,6 +31,9 @@ class AssistantStateLLM(AssistantState):
 class DiagnosticAssistantLLM(DiagnosticAssistant):
 
     def __init__(self, description: SystemDescription, configuration: Configuration):
+        # If no_vision is set (e.g. for text-only local models), strip diagram before super().__init__.
+        if configuration.ASSISTANT_CONFIG.get("no_vision"):
+            description = description.model_copy(update={"file_id": None, "image_b64": None})
         super().__init__(description, configuration)
         self.state = AssistantStateLLM(
             general_system_description=description,
@@ -104,7 +107,7 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         self.logger.debug(
             f"INPUT [tail only with new content. Full content is concatenation of all previous log entries]: \n{format_conversation_history([self.state.conversation_history[-1]])}\n")
         self.logger.info(f"OUTPUT: {str(raw)}")
-        if raw.suggestion_type == "action":
+        if raw.suggestion_type == "action" and raw.action_target is not None:
             return DiagnosticAction(
                 type=raw.action_type,
                 target=raw.action_target,

@@ -137,11 +137,14 @@ class HeuristicTestingProcedure(DiagnosticPlan):
             # while out not in ["anomalous", "nominal"]:
             #     out = await async_friendly_input(f"Please, reply with either 'anomalous' or 'nominal'\n> ")
             # return out
-            anomaly_encountered = self.anomaly_encountered(free_text_outcome) 
+            anomaly_encountered = self.anomaly_encountered(free_text_outcome)
             no_anomaly_encountered = self.no_anomaly_encountered(free_text_outcome)
             if anomaly_encountered and no_anomaly_encountered:
-                raise ValueError(
-                    f"The action outcome {free_text_outcome} contains both the {SimplifiedOutcome.ANOMALOUS.value} and the {SimplifiedOutcome.NOMINAL.value} tokens. It should contain only one of these!")
+                # Weaker models sometimes "think out loud" and mention both tokens.
+                # Break the tie by taking whichever verdict appears last in the text.
+                last_anomalous = free_text_outcome.rfind(SimplifiedOutcome.ANOMALOUS.value)
+                last_nominal   = free_text_outcome.rfind(SimplifiedOutcome.NOMINAL.value)
+                return SimplifiedOutcome.ANOMALOUS if last_anomalous > last_nominal else SimplifiedOutcome.NOMINAL
             if not anomaly_encountered and not no_anomaly_encountered:
                 raise ValueError(
                     f"The action outcome {free_text_outcome} contains neither the {SimplifiedOutcome.ANOMALOUS.value} nor the {SimplifiedOutcome.NOMINAL.value} tokens. It should contain exactly one of these!")
@@ -604,7 +607,13 @@ def get_diagnostic_action_properties(ontology_path: str, subject: URIRef) -> tup
         raise ValueError(
             f"Zero or more than one line of attributes returned for action {subject}. It should be just one. They are: {results.serialize(format='csv')}\n\n Inputs are {ontology_path} --- {subject}")
     result = list(results)[0]
-    return (split_uri(str(result.type))[1], split_uri(str(result.target))[1], result.description)
+    def _safe_local(uri) -> str:
+        s = str(uri)
+        try:
+            return split_uri(s)[1]
+        except Exception:
+            return s
+    return (_safe_local(result.type), _safe_local(result.target), result.description)
 
 
 def get_component_closure(ontology_path: str, schema_path: str, subject: URIRef) -> set[URIRef]:
@@ -759,7 +768,22 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
     )
     output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input=PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom=str(symptom), components=formatted_components), cached=configuration.USE_CACHE)
     logger.info(f"from the symptom '{symptom}' found {output}")
-    return [URIRef(url_str) for url_str in output.components_suggesting_anomaly_presence], [URIRef(url_str) for url_str in output.components_suggesting_nominal_behavior]
+    # Weaker models sometimes return the LocalName or the prompt-formatted
+    # "LocalName (full_URI)" string instead of a bare full URI.
+    # Build a fallback map from local name → URIRef.
+    local_to_uri: dict[str, URIRef] = {split_uri(str(c))[1]: c for c in all_components if '/' in str(c) or '#' in str(c)}
+    import re as _re
+    _uri_in_parens = _re.compile(r'\((https?://[^)]+)\)')
+    def _resolve(url_str: str) -> URIRef:
+        # "LocalName (http://...)" — extract the URI inside parentheses
+        m = _uri_in_parens.search(url_str)
+        if m:
+            return URIRef(m.group(1))
+        # Bare local name with no namespace separator
+        if '/' not in url_str and '#' not in url_str:
+            return local_to_uri.get(url_str, URIRef(url_str))
+        return URIRef(url_str)
+    return [_resolve(s) for s in output.components_suggesting_anomaly_presence], [_resolve(s) for s in output.components_suggesting_nominal_behavior]
 
 
 #################################################

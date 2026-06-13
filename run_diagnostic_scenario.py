@@ -8,6 +8,17 @@ import agents
 # to prevent tracing errors when using a proxy
 agents.set_tracing_disabled(True)
 
+# If OPENAI_BASE_URL is set (e.g. pointing to a local Ollama server), route the
+# Agents SDK runner to the same endpoint. The sync OpenAI() client in
+# configuration.py already reads OPENAI_BASE_URL automatically.
+import os as _os
+_base_url = _os.environ.get("OPENAI_BASE_URL")
+if _base_url:
+    from openai import AsyncOpenAI as _AsyncOpenAI
+    agents.set_default_openai_client(
+        _AsyncOpenAI(base_url=_base_url, api_key=_os.environ.get("OPENAI_API_KEY", "ollama"))
+    )
+
 from configuration import Configuration
 from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim, DiagnosticAssistantRandomTrajectory, ServiceAgentSpiceSimMockNL
 from environment_classes import SystemDescription, run_diagnostic_scenario

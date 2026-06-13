@@ -121,6 +121,7 @@ def label_clusters_llm(
     labels: list[int],
     probabilities: Optional[np.ndarray],
     mock: bool = False,
+    labeling_model: str = LABELING_MODEL,
 ) -> dict[int, str]:
     """
     Generate a short natural-language label for each intent cluster.
@@ -151,7 +152,7 @@ def label_clusters_llm(
             from openai import OpenAI
             client = OpenAI()
             resp = client.chat.completions.create(
-                model=LABELING_MODEL,
+                model=labeling_model,
                 max_tokens=40,
                 messages=[{
                     "role": "user",

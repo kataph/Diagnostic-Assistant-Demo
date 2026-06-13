@@ -95,6 +95,12 @@ def _parse_args() -> argparse.Namespace:
 
     parser.add_argument("--embedding-model", type=str, default="all-MiniLM-L6-v2",
                         help="Sentence-transformers model for intent embeddings")
+    parser.add_argument("--labeling-model", type=str, default="gpt-4.1",
+                        help="LLM model used to label intent clusters (default: gpt-4.1)")
+    parser.add_argument("--no-qualitative", action="store_true", default=False,
+                        help="Skip qualitative analysis (Section 8) after convergence")
+    parser.add_argument("--qualitative-model", type=str, default=None,
+                        help="LLM model for qualitative analysis (default: same as --labeling-model)")
 
     return parser.parse_args()
 
@@ -160,8 +166,11 @@ def main() -> None:
         mock_llm_labels=args.mock_llm_labels,
         mock_embeddings=args.mock_embeddings,
         embedding_model=args.embedding_model,
+        labeling_model=args.labeling_model,
         max_concurrent_subprocesses=args.max_concurrent,
         allow_constant_batches=args.allow_constant_batches,
+        run_qualitative=not args.no_qualitative,
+        qualitative_model=args.qualitative_model or args.labeling_model,
     )
 
     protocol = AdaptiveEvaluationProtocol(config)
