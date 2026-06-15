@@ -601,7 +601,7 @@ async def run_diagnostic_scenario(
             await assistant.record_action_outcome(last_outcome)
 
         else:  # suggestion is None
-            print("\nAssistant has no further actions to suggest.")
+            scenario_logger.info("Assistant has no further actions to suggest.")
             if chat_log:
                 chat_log.system("Assistant has no further actions to suggest.")
 
@@ -622,7 +622,7 @@ async def run_diagnostic_scenario(
         if suggestion is None:
             # No further suggestions and agent chose to continue: auto-stop.
             end_value = "surrender"
-            print("No actions and agent chose to continue; that is, the user will continue the diagnosis and the assistant cannot help. Ending session automatically.")
+            scenario_logger.info("No further suggestions and service agent chose to continue — ending session automatically.")
             if chat_log:
                 chat_log.system("No further suggestions and service agent chose to continue — session ended automatically.")
             break
