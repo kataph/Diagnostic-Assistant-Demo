@@ -41,7 +41,7 @@ from Evaluation.metrics import (
     compute_numerical_metrics,
 )
 from Evaluation.report import format_final_report, format_iteration_report
-from Evaluation.qualitative import QualitativeReport, run_qualitative_analysis
+from Evaluation.qualitative import QualitativeReport, run_qualitative_analysis, summarise_qualitative_run
 from Implementations.fault_injections import SCENARIOS
 
 
@@ -55,7 +55,8 @@ class ProtocolConfig:
     batch_size: int = 10
     initial_batches: int = 1
     bootstrap_samples: int = 100
-    intra_batch_ari_percentile: float = 0.05
+    intra_batch_ari_percentile: float = 0.50
+    ari_min_threshold: float = 0.30
     convergence_window: int = 1
     ci_rel_width_threshold: float = 0.10
     hdbscan_min_cluster_size: int = 3
@@ -75,7 +76,7 @@ class ProtocolConfig:
     )
 
     # Runner config (passed to run_diagnostic_scenario subprocesses)
-    assistant_type: str = "RandomTrajectory"
+    assistant_type: str = "FixedRandomTrajectories"
     assistant_config: dict = field(default_factory=dict)
     service_config:   dict = field(default_factory=dict)
     saboteur_config:  dict = field(default_factory=dict)
@@ -287,6 +288,10 @@ class AdaptiveEvaluationProtocol:
         elapsed = time.perf_counter() - t0
         self._log(f"\nProtocol complete. Total wall-clock time: {_fmt_duration(elapsed)}")
 
+        # Run-level qualitative prose summary across all scenarios
+        if self.config.run_qualitative and not self.config.mock_llm_labels:
+            self._run_qualitative_summary()
+
     # ------------------------------------------------------------------ #
     # Per-scenario loop
     # ------------------------------------------------------------------ #
@@ -485,12 +490,12 @@ class AdaptiveEvaluationProtocol:
             return best_labels.tolist()
 
         from functools import partial
-        ari_boot_p05_intent = bootstrap_ari_noise_floor(
+        ari_boot_noise_floor_intent = bootstrap_ari_noise_floor(
             new_intent_labels, self.config.bootstrap_samples,
             self.config.intra_batch_ari_percentile,
             partial(_intent_recluster, dist_matrix=intent_dist_matrix),
         )
-        ari_boot_p05_exec = bootstrap_ari_noise_floor(
+        ari_boot_noise_floor_exec = bootstrap_ari_noise_floor(
             new_exec_labels, self.config.bootstrap_samples,
             self.config.intra_batch_ari_percentile,
             partial(_exec_recluster, dist_matrix=exec_dist_matrix),
@@ -509,14 +514,17 @@ class AdaptiveEvaluationProtocol:
             ari_inter_execution = compute_ari_inter(prev_exec, new_exec_labels, shared)
 
         # Convergence check — guard: n_clusters_intent must be >= 1
+        # Dual criterion: (1) beat bootstrap noise floor, (2) beat absolute minimum ARI
         converged_intent = (
             n_clusters_intent >= 1
             and ari_inter_intent is not None
-            and ari_inter_intent >= ari_boot_p05_intent
+            and ari_inter_intent >= ari_boot_noise_floor_intent
+            and ari_inter_intent >= self.config.ari_min_threshold
         )
         converged_execution = (
             ari_inter_execution is not None
-            and ari_inter_execution >= ari_boot_p05_exec
+            and ari_inter_execution >= ari_boot_noise_floor_exec
+            and ari_inter_execution >= self.config.ari_min_threshold
         )
 
         if converged_intent:
@@ -556,8 +564,9 @@ class AdaptiveEvaluationProtocol:
             "n_clusters_execution": n_clusters_execution,
             "ari_inter_intent": ari_inter_intent,
             "ari_inter_execution": ari_inter_execution,
-            "ari_boot_p05_intent": ari_boot_p05_intent,
-            "ari_boot_p05_execution": ari_boot_p05_exec,
+            "ari_boot_noise_floor_intent": ari_boot_noise_floor_intent,
+            "ari_boot_noise_floor_execution": ari_boot_noise_floor_exec,
+            "ari_min_threshold": self.config.ari_min_threshold,
             "converged_intent": converged_intent,
             "converged_execution": converged_execution,
             "streak_intent": state.streak_intent,
@@ -577,13 +586,14 @@ class AdaptiveEvaluationProtocol:
             n_clusters_execution=n_clusters_execution,
             ari_inter_intent=ari_inter_intent,
             ari_inter_execution=ari_inter_execution,
-            ari_boot_p05_intent=ari_boot_p05_intent,
-            ari_boot_p05_execution=ari_boot_p05_exec,
+            ari_boot_noise_floor_intent=ari_boot_noise_floor_intent,
+            ari_boot_noise_floor_execution=ari_boot_noise_floor_exec,
             converged_intent=converged_intent,
             converged_execution=converged_execution,
             streak_intent=state.streak_intent,
             streak_execution=state.streak_execution,
             convergence_window=self.config.convergence_window,
+            ari_min_threshold=self.config.ari_min_threshold,
             numerical_metrics=numerical,
             recommendation=recommendation,
         )
@@ -592,6 +602,57 @@ class AdaptiveEvaluationProtocol:
     # ------------------------------------------------------------------ #
     # Post-convergence (cluster labeling + final report)
     # ------------------------------------------------------------------ #
+
+    def _run_qualitative_summary(self) -> None:
+        """Load all per-scenario qualitative.json files and write a prose summary."""
+        run_dir = (
+            self.config.checkpoint_dir
+            / self.config.assistant_type
+            / self.config.protocol_run_id
+        )
+        qual_data: dict[int, dict] = {}
+        for p in sorted(run_dir.rglob("qualitative.json")):
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+                num = d.get("scenario_number")
+                if num is not None:
+                    qual_data[int(num)] = d
+            except Exception:
+                continue
+
+        if not qual_data:
+            self._log("\n[Qualitative summary] No qualitative.json files found — skipping.")
+            return
+
+        self._log(f"\n[Qualitative summary] Summarising {len(qual_data)} scenarios with {self.config.qualitative_model}…")
+
+        # Build a lightweight scenario_meta lookup from SCENARIOS
+        _meta_cache: dict[int, dict] = {}
+        for s in SCENARIOS:
+            tags_raw = getattr(s, "category", "") or ""
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else ["Simple"]
+            _meta_cache[s.number] = {
+                "system":        s.system_name,
+                "fault_tags":    tags,
+                "injected_fault": s.root_cause.root_cause_description_proper if s.root_cause else "",
+            }
+
+        def _meta(num: int) -> dict:
+            return _meta_cache.get(num, {"system": "?", "fault_tags": [], "injected_fault": "?"})
+
+        try:
+            summary = summarise_qualitative_run(
+                qual_data=qual_data,
+                model=self.config.qualitative_model,
+                scenario_meta_fn=_meta,
+            )
+        except Exception as exc:
+            summary = f"(qualitative summary error: {exc})"
+
+        self._log(f"\n[Qualitative summary]\n{summary}")
+        out_path = run_dir / "qualitative_summary.txt"
+        out_path.write_text(summary + "\n", encoding="utf-8")
+        self._log(f"[Qualitative summary] Written to {out_path}")
 
     def _post_convergence(
         self, state: ScenarioState, scenario_number: int, ckpt_path: Path
@@ -651,8 +712,8 @@ class AdaptiveEvaluationProtocol:
             n_clusters_execution=last.get("n_clusters_execution", 0),
             ari_inter_intent=last.get("ari_inter_intent"),
             ari_inter_execution=last.get("ari_inter_execution"),
-            ari_boot_p05_intent=last.get("ari_boot_p05_intent", 0.0),
-            ari_boot_p05_execution=last.get("ari_boot_p05_execution", 0.0),
+            ari_boot_noise_floor_intent=last.get("ari_boot_noise_floor_intent") or last.get("ari_boot_p05_intent", 0.0),
+            ari_boot_noise_floor_execution=last.get("ari_boot_noise_floor_execution") or last.get("ari_boot_p05_execution", 0.0),
             cluster_labels_intent=cluster_labels,
             numerical_metrics=numerical,
             batch_history=state.batch_history,
@@ -811,8 +872,8 @@ class AdaptiveEvaluationProtocol:
         last = state.batch_history[-1] if state.batch_history else {}
         ari_i = last.get("ari_inter_intent")
         ari_e = last.get("ari_inter_execution")
-        floor_i = last.get("ari_boot_p05_intent", 0.0)
-        floor_e = last.get("ari_boot_p05_execution", 0.0)
+        floor_i = last.get("ari_boot_noise_floor_intent") or last.get("ari_boot_p05_intent", 0.0)
+        floor_e = last.get("ari_boot_noise_floor_execution") or last.get("ari_boot_p05_execution", 0.0)
         with self._print_lock:
             print(
                 f"\n[Scenario {scenario_number} | Batch {state.batch_index} → {state.batch_index+1} | "

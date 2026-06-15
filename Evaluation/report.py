@@ -18,13 +18,14 @@ def format_iteration_report(
     n_clusters_execution: int,
     ari_inter_intent: Optional[float],
     ari_inter_execution: Optional[float],
-    ari_boot_p05_intent: float,
-    ari_boot_p05_execution: float,
+    ari_boot_noise_floor_intent: float,
+    ari_boot_noise_floor_execution: float,
     converged_intent: bool,
     converged_execution: bool,
     streak_intent: int,
     streak_execution: int,
     convergence_window: int,
+    ari_min_threshold: float = 0.0,
     numerical_metrics: Optional[dict] = None,
     recommendation: str = "CONTINUE",
 ) -> str:
@@ -33,10 +34,10 @@ def format_iteration_report(
         f"Scenario {scenario_number} | Batch {batch_index} | N={n_trajectories}",
         f"{'='*60}",
         f"  Intent level:    clusters={n_clusters_intent:<3}  "
-        f"ARI_inter={_fmt(ari_inter_intent)}  noise_floor={ari_boot_p05_intent:.3f}  "
+        f"ARI_inter={_fmt(ari_inter_intent)}  noise_floor={ari_boot_noise_floor_intent:.3f}  min_thr={ari_min_threshold:.3f}  "
         f"pass={'✓' if converged_intent else '✗'}  streak={streak_intent}/{convergence_window}",
         f"  Execution level: clusters={n_clusters_execution:<3}  "
-        f"ARI_inter={_fmt(ari_inter_execution)}  noise_floor={ari_boot_p05_execution:.3f}  "
+        f"ARI_inter={_fmt(ari_inter_execution)}  noise_floor={ari_boot_noise_floor_execution:.3f}  min_thr={ari_min_threshold:.3f}  "
         f"pass={'✓' if converged_execution else '✗'}  streak={streak_execution}/{convergence_window}",
     ]
     if numerical_metrics:
@@ -58,8 +59,8 @@ def format_final_report(
     n_clusters_execution: int,
     ari_inter_intent: Optional[float],
     ari_inter_execution: Optional[float],
-    ari_boot_p05_intent: float,
-    ari_boot_p05_execution: float,
+    ari_boot_noise_floor_intent: float,
+    ari_boot_noise_floor_execution: float,
     cluster_labels_intent: Optional[dict[int, str]],
     numerical_metrics: dict,
     batch_history: list[dict],
@@ -74,7 +75,7 @@ def format_final_report(
         f"  Total batches: {total_batches} | Total trajectories: {total_trajectories}",
         f"  Intent clusters: {n_clusters_intent}  |  Execution clusters: {n_clusters_execution}",
         f"  ARI_inter at convergence: intent={_fmt(ari_inter_intent)}  execution={_fmt(ari_inter_execution)}",
-        f"  Noise floor: intent={ari_boot_p05_intent:.3f}  execution={ari_boot_p05_execution:.3f}",
+        f"  Noise floor: intent={ari_boot_noise_floor_intent:.3f}  execution={ari_boot_noise_floor_execution:.3f}",
     ]
     if cluster_labels_intent:
         lines.append("  Intent cluster labels:")

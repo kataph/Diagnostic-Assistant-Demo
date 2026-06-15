@@ -4,16 +4,16 @@ Entry point for the Adaptive Evaluation Protocol (Specification v4).
 Usage examples
 --------------
 # Test run with mocks (no LLM, no real embeddings, 1 scenario only)
-python -m run_evaluation_protocol --scenarios 1 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 10 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
+python -m run_evaluation_protocol --scenarios 1 --assistant FixedRandomTrajectories --service SpiceSimMockNL --batch-size 10 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Test run with mocks (no LLM, no real embeddings)
-python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
+python -m run_evaluation_protocol --scenarios 1,2,3 --assistant FixedRandomTrajectories --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Test run with mocks, all scenarios
-python -m run_evaluation_protocol --all-scenarios --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
+python -m run_evaluation_protocol --all-scenarios --assistant FixedRandomTrajectories --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 3
 
 # Resume a previous run
-python -m run_evaluation_protocol --scenarios 1,2,3 --assistant RandomTrajectory --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 5 --resume 20260604T123456
+python -m run_evaluation_protocol --scenarios 1,2,3 --assistant FixedRandomTrajectories --service SpiceSimMockNL --batch-size 3 --rounds 5 --mock-llm-labels --mock-embeddings --max-batches 5 --resume 20260604T123456
 
 # Real run, fully automated (default)
 python -m run_evaluation_protocol --all-scenarios --assistant LLM --service SpiceSim --batch-size 10 --rounds 10
@@ -42,8 +42,8 @@ def _parse_args() -> argparse.Namespace:
                      help="Run all simulatable scenarios (fault_fns is not None)")
 
     # Agent types
-    parser.add_argument("--assistant", type=str, default="RandomTrajectory",
-                        help="Assistant type: RandomTrajectory | LLM | EvidenceKGOptimal")
+    parser.add_argument("--assistant", type=str, default="FixedRandomTrajectories",
+                        help="Assistant type: FixedRandomTrajectories | RandomSearch | Unhelpful | LLM | EvidenceKGOptimal")
     parser.add_argument("--service", type=str, default="SpiceSimMockNL",
                         help="Service agent type: SpiceSimMockNL | SpiceSim")
     parser.add_argument("--assistant-config", type=str, default="{}",
@@ -57,6 +57,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=10)
     parser.add_argument("--initial-batches", type=int, default=1)
     parser.add_argument("--bootstrap-samples", type=int, default=100)
+    parser.add_argument("--ari-percentile", type=float, default=0.50,
+                        help="Percentile of the bootstrap ARI noise floor used as convergence "
+                             "threshold (default: 0.50 = median).")
+    parser.add_argument("--ari-min-threshold", type=float, default=0.30,
+                        help="Absolute minimum inter-batch ARI required for convergence, "
+                             "in addition to exceeding the bootstrap noise floor (default: 0.30).")
     parser.add_argument("--convergence-window", type=int, default=1)
     parser.add_argument("--max-batches", type=int, default=None,
                         help="Hard cap on batches per scenario (default: unlimited)")
@@ -150,6 +156,8 @@ def main() -> None:
         batch_size=args.batch_size,
         initial_batches=args.initial_batches,
         bootstrap_samples=args.bootstrap_samples,
+        intra_batch_ari_percentile=args.ari_percentile,
+        ari_min_threshold=args.ari_min_threshold,
         convergence_window=args.convergence_window,
         max_batches_per_scenario=args.max_batches,
         interactive=interactive,

@@ -264,8 +264,8 @@ _GOLD_SYSTEM = (
     "You are evaluating an AI diagnostic agent against a gold-standard diagnosis. "
     "Classify the match as one of: correct, partial, incorrect, different_strategy. "
     "correct = same fault identified via same or equivalent steps. "
-    "partial = correct fault but took unnecessary detours or missed steps. "
-    "incorrect = wrong fault identified. "
+    "partial = correct fault but took unnecessary detours or missed steps OR deduced the presence of the fault near the actual root cause, but was not able to single out the actual root cause "
+    "incorrect = wrong fault identified OR no fault identified. "
     "different_strategy = correct fault but via a substantially different valid approach. "
     "Then explain in one concise sentence."
 )
@@ -358,7 +358,7 @@ Identify:
 - failure_modes: recurring ways the agent fails or gets stuck (beyond rubric dimensions)
 - novel_strategies: approaches not anticipated by the rubric that appeared effective or interesting
 - inefficiencies: common wasteful patterns not already captured by the efficiency dimension
-- candidate_metrics: new measurable quantities that could extend the rubric
+- candidate_qualitative_aspects: new qualitative aspects that could extend the rubric
 
 Return empty lists for categories where nothing notable was observed."""
 
@@ -415,6 +415,150 @@ def extract_emergent_findings(
 def save_qualitative_json(report: QualitativeReport, path: Path) -> None:
     """Write the full structured report to a JSON file for downstream aggregation."""
     path.write_text(json.dumps(asdict(report), indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Run-level prose summary (across all scenarios in a run)
+# ---------------------------------------------------------------------------
+
+# Models whose names suggest a large context window (≥32K tokens).
+# All others are chunked to stay within ~8K.
+_LARGE_CONTEXT_MODELS = {
+    "gpt-4", "gpt-4o", "gpt-4.1", "gpt-4-turbo", "gpt-4o-mini",
+    "claude", "gemini",
+}
+
+# Max chars of scenario digests per LLM call for small-context models.
+# ~4000 chars ≈ 1000 tokens, leaving room for system prompt + response in 8K.
+_CHUNK_CHARS = 4000
+
+
+def _is_large_context(model: str) -> bool:
+    return any(name in model.lower() for name in _LARGE_CONTEXT_MODELS)
+
+
+def _format_scenario_digest(num: int, q: dict, scenario_meta_fn) -> str:
+    """Compact single-scenario text for the summary prompt."""
+    meta = scenario_meta_fn(num)
+    sys_label    = meta.get("system", "?")
+    fault_label  = meta.get("injected_fault", "?")
+    fault_tags   = ", ".join(meta.get("fault_tags", []))
+    lines = [f"Scenario {num} | system: {sys_label} | fault: {fault_label} | type: {fault_tags}"]
+    for rs in q.get("rubric_scores", []):
+        ratings = " ".join(
+            f"{d[0].upper()}={rs.get(d, {}).get('rating', '?')[0].upper()}"
+            for d in ["actionability", "diagnostic_coherence", "efficiency",
+                      "consistency", "evidence_usage"]
+        )
+        comment = rs.get("overall_comment", "")
+        lines.append(f"  rubric: {ratings}  comment: {comment}")
+    for gc in q.get("gold_comparisons", []):
+        lines.append(f"  gold match: {gc.get('match_level','?')} — {gc.get('explanation','')}")
+    ef = q.get("emergent_findings") or {}
+    for key, label in [("failure_modes", "failures"), ("novel_strategies", "novel"),
+                       ("inefficiencies", "inefficiencies")]:
+        items = ef.get(key, [])
+        if items:
+            lines.append(f"  {label}: {'; '.join(items)}")
+    return "\n".join(lines)
+
+
+_SUMMARY_SYSTEM = (
+    "You are an expert evaluator of AI diagnostic agents. "
+    "You will receive compact evaluation records for a set of diagnostic scenarios. "
+    "Write a concise analytical summary (3–5 sentences) that: "
+    "(1) describes the dominant behavioral trend across scenarios and fault types; "
+    "(2) highlights notable outliers — scenarios or fault types where behavior was "
+    "markedly better or worse than average; "
+    "(3) identifies the most salient weaknesses and any recurring emergent patterns. "
+    "Be specific — cite scenario numbers or fault types where relevant."
+)
+
+_CHUNK_SYSTEM = (
+    "You are an expert evaluator of AI diagnostic agents. "
+    "Summarise the key behavioral trends in the following evaluation records in 2–3 sentences. "
+    "Focus on rubric patterns, gold match quality, and emergent findings. "
+    "Cite scenario numbers or fault types where relevant. "
+    "This is an intermediate summary that will be merged with others."
+)
+
+_MERGE_SYSTEM = (
+    "You are an expert evaluator of AI diagnostic agents. "
+    "You have several intermediate summaries of an evaluation run, each covering a subset "
+    "of scenarios. Synthesise them into one concise analytical summary (3–5 sentences) that: "
+    "(1) describes the dominant behavioral trend; "
+    "(2) highlights notable outliers; "
+    "(3) identifies the most salient weaknesses and recurring emergent patterns. "
+    "Be specific — cite scenario numbers or fault types where relevant."
+)
+
+
+def summarise_qualitative_run(
+    qual_data: dict[int, dict],
+    model: str,
+    scenario_meta_fn,
+) -> str:
+    """
+    Generate a prose summary of qualitative results across all scenarios.
+
+    Uses a single LLM call for large-context models; chunks into groups of
+    ~4000 chars, summarises each, then merges in a final call for small-context
+    models (e.g. llama3.2 with 8K context).
+
+    qual_data: {scenario_number: qualitative_json_dict}
+    scenario_meta_fn: callable(int) -> dict with keys system, fault_tags, injected_fault
+    """
+    from openai import OpenAI
+    client = OpenAI()
+
+    digests = [
+        _format_scenario_digest(num, q, scenario_meta_fn)
+        for num, q in sorted(qual_data.items())
+    ]
+    if not digests:
+        return "(no qualitative data)"
+
+    def _call(system: str, user: str, max_tokens: int) -> str:
+        resp = client.chat.completions.create(
+            model=model, max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system},
+                      {"role": "user",   "content": user}],
+        )
+        return resp.choices[0].message.content.strip()
+
+    if _is_large_context(model):
+        return _call(_SUMMARY_SYSTEM, "\n\n".join(digests), 400)
+
+    # Split into chunks
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_len = 0
+    for d in digests:
+        if current and current_len + len(d) > _CHUNK_CHARS:
+            chunks.append(current)
+            current, current_len = [], 0
+        current.append(d)
+        current_len += len(d)
+    if current:
+        chunks.append(current)
+
+    if len(chunks) == 1:
+        return _call(_SUMMARY_SYSTEM, "\n\n".join(chunks[0]), 300)
+
+    # Intermediate summaries
+    intermediate: list[str] = []
+    for i, chunk in enumerate(chunks):
+        try:
+            intermediate.append(_call(_CHUNK_SYSTEM, "\n\n".join(chunk), 200))
+        except Exception as e:
+            intermediate.append(f"(chunk {i} error: {e})")
+
+    # Final merge
+    merge_input = "\n\n".join(f"[Part {i+1}]\n{s}" for i, s in enumerate(intermediate))
+    try:
+        return _call(_MERGE_SYSTEM, merge_input, 400)
+    except Exception as e:
+        return "\n".join(intermediate) + f"\n(merge error: {e})"
 
 
 # ---------------------------------------------------------------------------
