@@ -13,7 +13,7 @@ from openai import OpenAI
 CACHE_PATH = "embeddings_cache.pkl"
 
 EMBED_MODEL = "text-embedding-3-small"
-GEN_MODEL = "gpt-4.1"
+GEN_MODEL = os.getenv("OPENAI_RAG_MODEL", "openai/gpt-4.1")
 TOKENIZER_MODEL = "cl100k_base"
 
 CHUNK_SIZE = 400        # tokens
