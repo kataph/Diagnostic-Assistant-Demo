@@ -20,7 +20,7 @@ if _base_url:
     )
 
 from configuration import Configuration
-from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantMock, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim, DiagnosticAssistantRandomTrajectory, ServiceAgentSpiceSimMockNL
+from Implementations import DiagnosticAssistantEvidenceKGOptimal, DiagnosticAssistantLLM, DiagnosticAssistantUnhelpful, DiagnosticAssistantFixedRandomTrajectories, DiagnosticAssistantRandomSearch, SaboteurHuman, ServiceAgentHuman, ServiceAgentMock, SaboteurLLMFaultTree, ServiceAgentLLM, SaboteurFixedScenario, SaboteurSpiceSim, ServiceAgentSpiceSim, ServiceAgentSpiceSimMockNL
 from environment_classes import SystemDescription, run_diagnostic_scenario
 
 
@@ -289,10 +289,12 @@ match configuration.ASSISTANT_TYPE:
         assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration)
     case 'LLM':
         assistant = DiagnosticAssistantLLM(system, configuration)
-    case 'Mock':
-        assistant = DiagnosticAssistantMock(system, configuration)
-    case 'RandomTrajectory':
-        assistant = DiagnosticAssistantRandomTrajectory(system, configuration)
+    case 'Unhelpful':
+        assistant = DiagnosticAssistantUnhelpful(system, configuration)
+    case 'FixedRandomTrajectories':
+        assistant = DiagnosticAssistantFixedRandomTrajectories(system, configuration)
+    case 'RandomSearch':
+        assistant = DiagnosticAssistantRandomSearch(system, configuration)
     case _:
         raise ValueError(
             f'Unknown assistant type: {configuration.ASSISTANT_TYPE}')

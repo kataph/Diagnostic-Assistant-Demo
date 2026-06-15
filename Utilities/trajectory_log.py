@@ -10,6 +10,7 @@ One JSON file is produced per scenario run. It contains:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -100,3 +101,23 @@ class TrajectoryLog:
         }
         with open(self._path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+
+        # Write succinct human-readable summary alongside the JSON
+        parts = list(Path(self._path).parts)
+        try:
+            idx = next(i for i, p in enumerate(parts) if p == "Trajectories")
+            parts[idx] = "TrajectoriesSuccinct"
+        except StopIteration:
+            parts[-1] = Path(self._path).stem + "_succinct"
+        succinct_path = Path(*parts).with_suffix(".txt")
+        succinct_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(succinct_path, "w", encoding="utf-8") as f:
+            f.write(f"outcome: {data['end']}\n")
+            f.write(f"cost:    {data['total_cost']}\n")
+            f.write("actions (intention):\n")
+            for a in data["actions"]:
+                f.write(f"\t{a['intention']}\n")
+            f.write("actions (execution):\n")
+            for a in data["actions"]:
+                for a_imp in a['implementation']:
+                    f.write("\t"+a_imp["action_id"] + " -> " + ", ".join([v for k,v in a_imp["targets"].items()])+"\n")

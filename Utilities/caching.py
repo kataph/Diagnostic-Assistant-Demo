@@ -93,7 +93,7 @@ def async_disk_cache_runner_run(func):
         # Prefer a stable, explicit id; customize as needed:
         agent_id = (
             getattr(agent, "name", None)
-            # or getattr(agent, "id", None) # FC: commenting these 2 lines: they should be redundant TODO
+            # or getattr(agent, "id", None) # commenting these 2 lines: they should be redundant TODO
             # or agent.__class__.__name__  # fallback: class name
         )
 
