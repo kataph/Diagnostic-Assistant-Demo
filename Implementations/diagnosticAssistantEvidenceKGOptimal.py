@@ -15,10 +15,39 @@ from environment_classes import AssistantState, DiagnosticAction, DiagnosticActi
 from Utilities.formatting import terminal_uri_parts_gpt, to_one_line
 from Utilities.utils import get_key, get_set
 from Utilities.caching import possibly_cached_runner_run
-from Utilities.assorted_prompts import PROMPTS
 from Utilities.topology import minimum_open_dense_set_gpt_thesis as minimal_dense_set
-from Utilities.retrieving_gpt import retrieve_top_chunks
+from Utilities.retrieval import retrieve_top_chunks
 from Utilities.OWL_reasoning import expand_with_hermit
+
+
+_ANOMALOUS_NOMINAL_EXTRACTOR_INSTRUCTIONS = """You will be given a description of an engineered system's current observable behavior and a list of component identifiers. Each component is shown as "LocalName (full_URI)".
+
+Your goal is to classify components into two lists:
+- components_suggesting_anomaly_presence: the behavior description suggests this component (or something it interacts with) is NOT functioning normally.
+- components_suggesting_nominal_behavior: the behavior description explicitly indicates this component IS functioning normally.
+Components for which the description provides no information must be excluded from both lists.
+
+Follow these steps exactly for each component mentioned or strongly implied by the description:
+1. Call retrieve_component_context_tool with a natural-language description of the component to understand its normal function and role.
+2. Based on the behavior description AND the retrieved context, decide: anomalous, nominal, or unknown.
+3. If anomalous or nominal, add the component's full_URI (not the LocalName) to the appropriate output list.
+
+Classification rules:
+- anomalous: the description suggests the component is malfunctioning, missing, or that a fault exists at or near it.
+- nominal: the description explicitly states the component is working correctly.
+- When uncertain, do NOT include the component in either list.
+- The two lists must be disjoint.
+
+You MUST call retrieve_component_context_tool for every component you classify. Do not classify any component without first calling the tool.
+    """
+
+_ANOMALOUS_NOMINAL_EXTRACTOR_INPUT = """
+    Current system behavior description:
+    {symptom}
+
+    Component list (format: LocalName (full_URI)):
+    {components}
+    """
 
 
 class HeuristicTestingProcedure(DiagnosticPlan):
@@ -728,7 +757,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
 
     logger.info(
         f"The set of all possible candidate components is: {[split_uri(x)[1] for x in all_components]}")
-    prompt = PROMPTS.AnomalousNominalComponentExtractor_agent_v2.value
+    prompt = _ANOMALOUS_NOMINAL_EXTRACTOR_INSTRUCTIONS
 
     def retrieve_component_context_tool(component_description: str) -> str:
         """
@@ -766,7 +795,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
     formatted_components = "\n    ".join(
         f"{split_uri(str(c))[1]} ({str(c)})" for c in all_components
     )
-    output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input=PROMPTS.AnomalousNominalComponentExtractor_agent_v2_input.value.format(symptom=str(symptom), components=formatted_components), cached=configuration.USE_CACHE)
+    output: AnomalousNominalExtractorOutput = await possibly_cached_runner_run(agent=anomalousNominalExtractor, input=_ANOMALOUS_NOMINAL_EXTRACTOR_INPUT.format(symptom=str(symptom), components=formatted_components), cached=configuration.USE_CACHE)
     logger.info(f"from the symptom '{symptom}' found {output}")
     # Weaker models sometimes return the LocalName or the prompt-formatted
     # "LocalName (full_URI)" string instead of a bare full URI.
