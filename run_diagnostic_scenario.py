@@ -39,8 +39,6 @@ def parse_configuration() -> Configuration:
 
     parser.add_argument("--text-input-file", type=str,
                         help="Text file containing a description of the system")
-    # parser.add_argument("text_input", type=str, help="Primary text description of the system")
-    # parser.add_argument("--output_dir", type=str, default="Output", help="Directory for output files")
 
     # Optional Paths
     parser.add_argument("--ontology", type=str, default=None,
@@ -249,14 +247,6 @@ system = SystemDescription(
     image_b64=_diagram_b64,
 )
 
-# saboteur = SaboteurHuman(configuration) OK
-# saboteur = SaboteurLLMFaultTree(configuration) OK
-# service_agent = ServiceAgentHuman(configuration) OK
-# service_agent = ServiceAgentMock(configuration) OK
-# service_agent = ServiceAgentLLM(configuration) OK
-# assistant = DiagnosticAssistantMock(system, configuration) OK
-# assistant = DiagnosticAssistantLLM(system, configuration) OK
-# assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration) OK
 
 match configuration.SABOTEUR_TYPE:
     case 'Human':
@@ -299,11 +289,6 @@ match configuration.ASSISTANT_TYPE:
         raise ValueError(
             f'Unknown assistant type: {configuration.ASSISTANT_TYPE}')
 
-# saboteur = SaboteurHuman(configuration)
-# service_agent = ServiceAgentHuman(configuration)
-# assistant = DiagnosticAssistantEvidenceKGOptimal(system, configuration)
-# # assistant = DiagnosticAssistantLLM(system, configuration)
-
 scenario_logger = logging.getLogger("orchestrator")
 scenario_logger.setLevel(configuration.LOG_LEVEL)
 scenario_logger.propagate = False
@@ -316,161 +301,4 @@ asyncio.run(run_diagnostic_scenario(system, saboteur,
             service_agent, assistant, scenario_logger, chat_log=chat_log,
             trajectory_log=trajectory_log))
 
-# clear; python -m run_diagnostic_scenario --text-input-file /Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt --log-level 10 --rounds 5 --kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" --system 3CubesSystem --ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" --retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" --saboteur Human --service Human --assistant LLM
 
-"""
-clear; \
-python -m run_diagnostic_scenario \
---text-input-file "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
---diagram "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
---LLM-assistant-model "gpt-5.2" \
---log-level 10 \
---rounds 5 \
---kg "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
---system 3CubesSystem \
---ontology "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "/Users/francescocompagno/Desktop/Work_Units/Codebases_to_publish/ESWC_2026_Demo/Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
---saboteur Human \
---service Human \
---assistant EvidenceKGOptimal \
---interface cli
-"""
-
-# 10 cubes
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
---LLM-assistant-model "gpt-5.2" \
---NS-assistant-model "gpt-5.2" \
---log-level 10 \
---rounds 5 \
---kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
---system 10CubesSystem \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
---saboteur Human \
---service Human \
---assistant EvidenceKGOptimal \
---interface cli \
---cache
-"""
-
-# Fixed scenario input
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
---LLM-assistant-model "gpt-5.2" \
---NS-assistant-model "gpt-5.2" \
---forced-scenario 0 \
---log-level 10 \
---rounds 5 \
---kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
---system 3CubesSystem \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
---saboteur FixedScenario \
---service LLM \
---assistant LLM \
---interface cli 
-"""
-
-####################################################
-####################################################
-# go to for 3 cubes
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
---LLM-assistant-model "gpt-4.1" \
---NS-assistant-model "gpt-4.1" \
---log-level 10 \
---rounds 10 \
---system 3CubesSystem \
---kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
---saboteur Human \
---service Human \
---assistant LLM \
---interface cli 
-"""
-
-# go to for 10 cubes
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
---LLM-assistant-model "gpt-4.1" \
---NS-assistant-model "gpt-4.1" \
---log-level 10 \
---rounds 10 \
---system 10CubesSystem \
---kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
---saboteur Human \
---service Human \
---assistant LLM \
---interface cli 
-"""
-
-
-# go to for ambient light sensor
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor/ambient_light_sensor_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor/ambient_light_sensor_schematics.png" \
---LLM-assistant-model "gpt-4.1" \
---NS-assistant-model "gpt-4.1" \
---log-level 10 \
---rounds 10 \
---system AmbientLightSensorSystem \
---kg "Knowledge_sources/Structured_knowledge_sources/ambient_light_sensor/zorro-ontology-ambient-light-sensor-abox.ttl" \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/ambient_light_sensor" \
---saboteur Human \
---service Human \
---assistant LLM \
---interface cli 
-"""
-
-####################################################
-
-# 3 cubes LLM - voice
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/3_cubes/3_cubes_schematics.png" \
---LLM-assistant-model "gpt-4.1" \
---NS-assistant-model "gpt-4.1" \
---log-level 10 \
---rounds 10 \
---system 3CubesSystem \
---kg "Knowledge_sources/Structured_knowledge_sources/3_cubes/zorro-ontology-3-cubes-abox.ttl" \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/3_cubes" \
---saboteur Human \
---service Human \
---assistant LLM \
---interface voice 
-"""
-# 10 cubes symbolic - cli 
-"""
-python -m run_diagnostic_scenario \
---text-input-file "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_description.txt" \
---diagram "Knowledge_sources/Unstructured_knowledge_sources/10_cubes/10_cubes_schematics.png" \
---LLM-assistant-model "gpt-4.1" \
---NS-assistant-model "gpt-4.1" \
---log-level 10 \
---rounds 10 \
---system 10CubesSystem \
---kg "Knowledge_sources/Structured_knowledge_sources/10_cubes/zorro-ontology-10-cubes-abox.ttl" \
---ontology "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl" \
---retrieval-folder "Knowledge_sources/Unstructured_knowledge_sources/10_cubes" \
---saboteur Human \
---service Human \
---assistant EvidenceKGOptimal \
---interface cli 
-"""
