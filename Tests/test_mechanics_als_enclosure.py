@@ -7,7 +7,7 @@ lamp OFF → sensor dark → relay closed → lamp ON → …) never stabilises,
 causing the simulation to return ``converged=False``.
 
 The fix is to rotate/move either enclosure so the optical path is broken.
-``RotateEnclosure`` on ``cube_ctrl`` or ``cube_load`` sets ``is_inverted = True``
+``RotateEnclosure`` on ``cube_ctrl`` or ``cube_load`` sets ``is_rotated = True``
 on the chosen enclosure.  ``AmbientFeedbackCoupling._feedback_blocked()`` then
 returns True, the sensor stays dark, the relay stays closed, and the lamp
 converges stably ON.
@@ -46,7 +46,7 @@ test_repair_load_enclosure_via_test_repair
 
 test_test_repair_enclosure_has_no_side_effects
     After test_repair on an enclosure the system is back in fault state:
-    is_inverted is reset to False and the simulation diverges again.
+    is_rotated is reset to False and the simulation diverges again.
 """
 import sys
 import os
@@ -65,7 +65,7 @@ from Implementations.fault_injections import SCENARIOS
 # ---------------------------------------------------------------------------
 
 def _get_scenario15():
-    return next(s for s in SCENARIOS if s.id == 15)
+    return next(s for s in SCENARIOS if s.scenario_id == "3CC-AS.U.1")
 
 
 def _node_snapshot(system) -> dict:
@@ -205,8 +205,8 @@ class TestScenario15ALSRepair:
 
         faulted_system.test_repair({"cube_ctrl"})
 
-        assert not cube_ctrl.is_inverted, \
-            "test_repair must reset is_inverted to False after the check"
+        assert not cube_ctrl.is_rotated, \
+            "test_repair must reset is_rotated to False after the check"
         result = faulted_system.simulate()
         assert not result.converged, \
             "After test_repair the fault must still be active (simulation diverges)"
@@ -232,11 +232,11 @@ class TestScenario15ALSRepair:
         assert lamp_on, "test_repair must confirm the enclosure repair"
 
         # Mirror the persistence block in verify_hypothesis:
-        cube_ctrl.is_inverted = True
+        cube_ctrl.is_rotated = True
         faulted_system.restore_snapshot(snap, exclude_ids={"cube_ctrl"})
 
-        assert cube_ctrl.is_inverted, \
-            "restore_snapshot(exclude_ids={'cube_ctrl'}) must leave is_inverted=True"
+        assert cube_ctrl.is_rotated, \
+            "restore_snapshot(exclude_ids={'cube_ctrl'}) must leave is_rotated=True"
         result = faulted_system.simulate()
         assert result.converged, \
             "System must converge after persistent enclosure repair"
@@ -251,11 +251,11 @@ class TestScenario15ALSRepair:
         lamp_on = faulted_system.test_repair({"cube_load"})
         assert lamp_on, "test_repair must confirm the enclosure repair"
 
-        cube_load.is_inverted = True
+        cube_load.is_rotated = True
         faulted_system.restore_snapshot(snap, exclude_ids={"cube_load"})
 
-        assert cube_load.is_inverted, \
-            "restore_snapshot(exclude_ids={'cube_load'}) must leave is_inverted=True"
+        assert cube_load.is_rotated, \
+            "restore_snapshot(exclude_ids={'cube_load'}) must leave is_rotated=True"
         result = faulted_system.simulate()
         assert result.converged, \
             "System must converge after persistent enclosure repair"
@@ -290,12 +290,12 @@ class TestScenario15ALSRepair:
 
         faulted_system.test_repair({"cube_ctrl"})
 
-        # Intentionally set is_inverted but do NOT exclude cube_ctrl from restore.
-        cube_ctrl.is_inverted = True
+        # Intentionally set is_rotated but do NOT exclude cube_ctrl from restore.
+        cube_ctrl.is_rotated = True
         faulted_system.restore_snapshot(snap)   # no exclude_ids
 
-        assert not cube_ctrl.is_inverted, \
-            "Without exclude_ids restore_snapshot must reset is_inverted to False"
+        assert not cube_ctrl.is_rotated, \
+            "Without exclude_ids restore_snapshot must reset is_rotated to False"
         result = faulted_system.simulate()
         assert not result.converged, \
             "Without exclude_ids the fault must be active again after restore_snapshot"

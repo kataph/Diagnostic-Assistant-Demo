@@ -1,7 +1,8 @@
 """
-Non-regression tests for scenario 14 hypothesis verification.
+Non-regression tests for PSU-short + discharged-battery double fault.
 
-Scenario 14 has TWO independent faults:
+Faults injected directly (not via SCENARIOS — this scenario was not in the
+SCENARIOS_MASTER.csv catalogue):
   1. PSU output cables shorted together (ShortCircuit fault)
   2. Battery discharged (voltage=0.0)
 
@@ -21,23 +22,28 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "diagnosa
 import pytest
 from diagnosable_systems_simulation.systems.ten_cubes.factory import build_ten_cubes_system
 from diagnosable_systems_simulation.actions.fault_actions import ShortCircuit, DegradeComponent
-from Implementations.fault_injections import SCENARIOS
 
 
-def _get_scenario14():
-    return next(s for s in SCENARIOS if s.id == 14)
+def _apply(sys_, action, targets):
+    result = sys_.apply_action(action, targets)
+    assert result.success, f"Fault injection failed: {result.message}"
 
 
 @pytest.fixture
 def faulted_system():
-    """10-cubes system with scenario-14 faults applied."""
+    """10-cubes system with PSU-short + discharged-battery faults applied directly."""
     sys_ = build_ten_cubes_system(extra_tools={"multimeter"})
-    # Record nominal emitting light BEFORE applying faults (mirrors saboteur setup).
     sys_.simulate()
     sys_._nominal_emitting_light = sys_.last_result.emitting_light
-    scenario = _get_scenario14()
-    for fn in scenario.fault_fns:
-        fn(sys_)
+
+    cable_pos = sys_.component("psu_cable_pos")
+    cable_neg = sys_.component("psu_cable_neg")
+    psu_pos_node = cable_pos.port("p").node_id
+    gnd_node = cable_neg.port("p").node_id
+    _apply(sys_, ShortCircuit(psu_pos_node, gnd_node, "psu_output_short"),
+           {"start": cable_pos, "end": cable_neg})
+    _apply(sys_, DegradeComponent({"voltage": 0.0}), {"subject": sys_.component("battery")})
+
     sys_._fault_snapshot = sys_.snapshot()
     return sys_
 
@@ -100,11 +106,8 @@ class TestScenario14Verification:
         After test_repair on the shorted cables, the short wire must be back in the
         circuit so subsequent simulations reflect the real fault.
         """
-        # Before: short is present → no voltage at psu_pos net
         result_before = faulted_system.simulate()
-        # Run test (removes short during test, restores afterward)
         faulted_system.test_repair({"psu_cable_pos", "psu_cable_neg"})
-        # After: short must be restored → same simulation result
         result_after = faulted_system.simulate()
         assert result_before.emitting_light == result_after.emitting_light, \
             "Short circuit must be re-inserted after test_repair restores the snapshot"
