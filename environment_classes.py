@@ -620,12 +620,12 @@ async def run_diagnostic_scenario(
             assistant.finish_session(user_root)
             if finish_reason:
                 scenario_logger.info(f"Session ended by service agent: {finish_reason}")
-                if "system_restored_via_action" in finish_reason:
-                    end_value = "success_no_hypothesis"
-                elif suggestion is None:
-                    end_value = "surrender"
-                else:
-                    end_value = "timeout"
+            if finish_reason and "system_restored_via_action" in finish_reason:
+                end_value = "success_no_hypothesis"
+            elif suggestion is None:
+                end_value = "surrender"
+            else:
+                end_value = "timeout"
             break
 
         if suggestion is None:
