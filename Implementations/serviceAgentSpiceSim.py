@@ -385,14 +385,14 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 # Apply the repairs now so that restore_snapshot(exclude_ids)
                 # leaves those components in the repaired state.
                 repair_cost_time = sim.apply_repairs(self._repaired_comp_ids).time
-                # For repositioned enclosures: set is_inverted=True before the
+                # For repositioned enclosures: set is_rotated=True before the
                 # snapshot restore so that restore_snapshot(exclude_ids=...) skips
-                # them and leaves is_inverted=True permanently.
+                # them and leaves is_rotated=True permanently.
                 from diagnosable_systems_simulation.world.components import PhysicalEnclosure as _PE2
                 for cid in self._repaired_comp_ids:
                     comp = sim.all_components().get(cid)
                     if isinstance(comp, _PE2):
-                        comp.is_inverted = True
+                        comp.is_rotated = True
                 sim.restore_snapshot(fault_snapshot, exclude_ids=self._repaired_comp_ids)
 
         # --- Build narrative --------------------------------------------------
