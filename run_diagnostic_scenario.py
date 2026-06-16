@@ -186,9 +186,9 @@ def parse_configuration() -> Configuration:
         EMBED_MODEL=assistant_config.get("embed_model", "text-embedding-3-large"),
         TOKENIZER_MODEL=assistant_config.get("tokenizer_model", "cl100k_base"),
 
-        LLM_ASSISTANT_MODEL=ns_model,
-        NS_ASSISTANT_MODEL=ns_model,
-        SERVICE_MODEL=service_model,
+        DEFAULT_LLM_MODEL=ns_model,
+        DEFAULT_NS_MODEL=ns_model,
+        DEFAULT_SERVICE_MODEL=service_model,
         FORCED_SCENARIO_ID=args.forced_scenario,
 
         ASSISTANT_CONFIG=assistant_config,

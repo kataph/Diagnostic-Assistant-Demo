@@ -11,6 +11,40 @@ from environment_classes import (
 )
 
 
+def _estimate_repair_cost(sim, component_ids: "set[str]") -> float:
+    """
+    Estimate the cost a technician would pay to attempt repairing the given
+    components, without mutating any circuit state.
+
+    Mirrors the logic of DiagnosableSystem.apply_repairs():
+    - Cables: 10 per port that needs reconnection (floating or wrong-net).
+    - All other components: 120 (standard replacement cost).
+
+    Used to charge wrong hypotheses the same cost they would have incurred
+    had the attempted repair been on genuinely faulty components.
+    """
+    from diagnosable_systems_simulation.world.components import Cable
+    _RECONNECT_COST = 10.0
+    _REPLACE_COST = 120.0
+    total = 0.0
+    for cid in component_ids:
+        try:
+            comp = sim.component(cid)
+        except KeyError:
+            continue
+        if isinstance(comp, Cable):
+            orig = getattr(comp, "_orig_connections", {})
+            for port_name, node_id in orig.items():
+                port = comp.port(port_name)
+                if not port.is_connected() or port.node_id != node_id:
+                    total += _RECONNECT_COST
+            if getattr(comp, "_detached_cable_ports", {}):
+                total += _RECONNECT_COST * len(comp._detached_cable_ports)
+        else:
+            total += _REPLACE_COST
+    return total
+
+
 def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
     """
     Return a compact, system-agnostic snapshot of circuit-state changes
@@ -146,7 +180,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.debug(f"Added ServiceAgentSpiceSim own logger to the simulated_system. Spice circuits just before simulation should now appear in the logs")
         narrative, cost, _, _ = await asyncio.to_thread(
             nl_run, self.INITIAL_OBSERVATIONS_PROMPT, system.simulated_system,
-            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "collect_information", self.logger
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.DEFAULT_SERVICE_MODEL), "collect_information", self.logger
         )
         self.logger.info(
             f"Initial simulation observation "
@@ -169,7 +203,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         nl_prompt = action.description or action.get_name()
         narrative, sim_cost, actions, results = await asyncio.to_thread(
             nl_run, nl_prompt, system.simulated_system,
-            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "collect_information", self.logger,
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.DEFAULT_SERVICE_MODEL), "collect_information", self.logger,
             action.reporting_requirements,
         )
 
@@ -259,7 +293,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
         )
         _, sim_cost, entries, verify_results = await asyncio.to_thread(
             nl_run, verify_map_prompt, sim,
-            self.configuration.SERVICE_CONFIG.get("model", self.configuration.SERVICE_MODEL), "verify", self.logger
+            self.configuration.SERVICE_CONFIG.get("model", self.configuration.DEFAULT_SERVICE_MODEL), "verify", self.logger
         )
         verify_breakdown = [(a.action_id, a.cost.time) for a, _, _ in verify_results]
         candidate_ids: set[str] = {
@@ -323,8 +357,14 @@ class ServiceAgentSpiceSim(ServiceAgent):
         else:
             outcome = "wrong"
 
-        # --- Persist confirmed repairs ----------------------------------------
+        # --- Compute repair cost ----------------------------------------------
+        # correct/partial: use apply_repairs() which charges actual per-component
+        # costs (cable reconnection = 10, component replacement = 120).
+        # wrong: estimate what the failed attempt would have cost using the same
+        # per-type rates, without mutating state.
         repair_cost_time: float = 0.0
+        if outcome == "wrong":
+            repair_cost_time = _estimate_repair_cost(sim, candidate_ids)
         if outcome in ("correct", "partial"):
             self._repaired_comp_ids.update(actually_faulty)
 

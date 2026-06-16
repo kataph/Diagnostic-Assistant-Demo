@@ -15,6 +15,11 @@ from configuration import Configuration
 from voice_client import send_prompt, get_user_text
 from time import perf_counter
 
+# Fallback action costs used when no precise simulation cost is available
+# (i.e. when the service agent is Human, LLM, or Mock rather than SpiceSim).
+# SpiceSim overrides these with actual simulation wall-clock time per action.
+# Values reflect qualitative ordering only (Observe < Test < Adjust < Replace);
+# they do not correspond to SpiceSim's per-action costs.
 ACTION_COST_MAP = {
     'Replace': 12,
     'Adjust': 4,
@@ -22,7 +27,11 @@ ACTION_COST_MAP = {
     'Observe': 1,
 }
 
-HYPOTHESIS_VERIFICATION_COST: int = 120
+# Fallback hypothesis verification cost for non-SpiceSim service agents.
+# SpiceSim computes the real cost from apply_repairs() (cable reconnection = 10
+# per port, component replacement = 120) and _estimate_repair_cost() for wrong
+# hypotheses, so this constant is never used in SpiceSim runs.
+FALLBACK_HYPOTHESIS_VERIFICATION_COST: int = 120
 
 class SystemDescription(BaseModel):
     model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
@@ -253,7 +262,7 @@ class HypothesisVerificationResult(BaseModel):
     hypothesis: DiagnosticFaultHypothesis
     outcome: Literal["correct", "partial", "wrong"]
     narrative: str
-    cost: float = HYPOTHESIS_VERIFICATION_COST
+    cost: float = FALLBACK_HYPOTHESIS_VERIFICATION_COST
     cost_breakdown: Optional[list[tuple[str, float]]] = None
 
 
@@ -470,7 +479,7 @@ class ServiceAgent(ThingThatLogs):
         """
         Attempt to verify the assistant's fault hypothesis by repairing/replacing
         the suspected components and checking whether system function is restored.
-        The verification carries a fixed cost of HYPOTHESIS_VERIFICATION_COST.
+        The verification carries a fixed cost of FALLBACK_HYPOTHESIS_VERIFICATION_COST.
 
         Returns a HypothesisVerificationResult with outcome "correct", "partial",
         or "wrong".  If "correct" the orchestrator will end the session; for

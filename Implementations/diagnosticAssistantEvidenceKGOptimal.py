@@ -265,7 +265,7 @@ class DiagnosticAssistantEvidenceKGOptimal(DiagnosticAssistant):
 
     @property
     def description(self) -> str:
-        model = self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.NS_ASSISTANT_MODEL)
+        model = self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.DEFAULT_NS_MODEL)
         return super().description + "_" + model
 
     async def setup(self, observations: list[Observation]) -> None:
@@ -782,7 +782,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
             cache_path=cfg.get("cache_path", configuration.CACHE_PATH),
         )
 
-    _ns_model = configuration.ASSISTANT_CONFIG.get("model", configuration.NS_ASSISTANT_MODEL)
+    _ns_model = configuration.ASSISTANT_CONFIG.get("model", configuration.DEFAULT_NS_MODEL)
     anomalousNominalExtractor = Agent(
         name="anomalousNominalExtractor",
         instructions=prompt,

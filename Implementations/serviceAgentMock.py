@@ -1,7 +1,7 @@
 from typing import Optional
 from asyncio import sleep
 
-from environment_classes import DiagnosticFaultHypothesis, HypothesisVerificationResult, HYPOTHESIS_VERIFICATION_COST, ServiceAgent, SystemDescription, Observation, DiagnosticActionResult, DiagnosticAction, RootCauseDescription, AssistantState
+from environment_classes import DiagnosticFaultHypothesis, HypothesisVerificationResult, FALLBACK_HYPOTHESIS_VERIFICATION_COST, ServiceAgent, SystemDescription, Observation, DiagnosticActionResult, DiagnosticAction, RootCauseDescription, AssistantState
 
 
 class ServiceAgentMock(ServiceAgent):
@@ -32,7 +32,7 @@ class ServiceAgentMock(ServiceAgent):
             hypothesis=hypothesis,
             outcome="wrong",
             narrative="Mock: hypothesis not verified.",
-            cost=HYPOTHESIS_VERIFICATION_COST,
+            cost=FALLBACK_HYPOTHESIS_VERIFICATION_COST,
         )
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:

@@ -38,11 +38,11 @@ class Configuration:
     EMBED_MODEL: str = "text-embedding-3-small"
     TOKENIZER_MODEL: str = "cl100k_base"
 
-    LLM_ASSISTANT_MODEL: str = "gpt-4.1"
+    DEFAULT_LLM_MODEL: str = "gpt-4.1"
 
-    NS_ASSISTANT_MODEL: str = "gpt-4.1"
+    DEFAULT_NS_MODEL: str = "gpt-4.1"
 
-    SERVICE_MODEL: str = "gpt-4.1"
+    DEFAULT_SERVICE_MODEL: str = "gpt-4.1"
 
     # Per-agent config dicts — each agent reads its own keys with .get(key, default).
     # Passed via --assistant-config / --service-config / --saboteur-config JSON strings.

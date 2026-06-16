@@ -2,7 +2,7 @@ from agents import Agent
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from configuration import Configuration
-from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, DiagnosticFaultHypothesis, HypothesisVerificationResult, Observation, SystemDescription, ACTION_COST_MAP, diagnosticActionTypes
+from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, DiagnosticFaultHypothesis, HypothesisVerificationResult, Observation, SystemDescription, diagnosticActionTypes
 from Utilities.agents_boilerplate import get_conversation_start, get_updated_conversation
 from Utilities.formatting import format_conversation_history, format_list
 from Utilities.caching import possibly_cached_runner_run
@@ -45,48 +45,55 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
             instructions=(
                 "You are an expert reliability engineer. You will receive a description of an "
                 "engineered system that is suffering from some fault, and possibly a history of "
-                "diagnostic actions executed on the system and their results.\n"
-                "Your job is to find the root cause of such a fault.\n\n"
+                "diagnostic actions executed on the system and their results.\n\n"
+                "YOUR GOAL: restore the system to full functionality by identifying and fixing "
+                "the root cause of the fault. The session ends successfully when the system is "
+                "restored. This can happen in two ways:\n"
+                "  1. You declare a correct fault hypothesis (MODE 2) and the service agent "
+                "repairs the identified components — this is the PREFERRED path.\n"
+                "  2. A Replace action (MODE 1) happens to fix the fault component directly.\n\n"
                 "On each turn you must choose ONE of the two following output modes:\n\n"
                 "MODE 1 — suggest a diagnostic action (suggestion_type='action'):\n"
                 "  Use this when you need more information before committing to a diagnosis.\n"
                 "  Provide action_type, action_target, and action_description.\n"
                 "  - action_type: 'Replace' (swap a component), 'Adjust' (tune/repair without "
                 "replacing), 'Test' (measure/manipulate with tools), or 'Observe' (visually "
-                "inspect without tools).\n"
+                "inspect without tools). The ordering from cheapest to most expensive is roughly "
+                "Observe < Test < Adjust < Replace — use your common sense to estimate the "
+                "specific cost of each action you propose. Note that action_type is used only "
+                "for cost tracking — it is the action_description that is interpreted precisely "
+                "to determine what actually happens.\n"
                 "  - action_target: the component to act on.\n"
-                "  - action_description: a brief natural-language description of the action.\n"
-                "  - suspected_components: must be left None or empty in this case.\n"
-                f"  Action costs by type: Replace={ACTION_COST_MAP['Replace']}, "
-                f"Adjust={ACTION_COST_MAP['Adjust']}, Test={ACTION_COST_MAP['Test']}, "
-                f"Observe={ACTION_COST_MAP['Observe']}.\n\n"
-                "IMPORTANT NOTE ON MODE 1: if a replace action will repair a component, "
-                "this fact will be maintained throughout the whole diagnosis. But if a "
-                "(series of) non-replacement actions happens to repair a fault, it may "
-                "happen that those action effects will be silently reset, due to "
-                "preventing system state draft. So, prefer MODE 2 for component repair "
-                "instead of MODE 1 diagnostic actions. Ditto if you want to directy verify "
-                "the presence of a fault. "
+                "  - action_description: a precise natural-language description of what should "
+                "be done. This is the most important field: write it clearly and specifically.\n"
+                "  - suspected_components: must be left None or empty in this case.\n\n"
+                "NOTE ON MODE 1: Replace actions that repair a component are permanent and "
+                "carry over for the rest of the session. Non-replacement actions may be reset "
+                "between turns (the system is restored to its fault state to keep observations "
+                "consistent). Consequently, if your goal is to verify whether replacing a "
+                "specific component restores the system, use MODE 2 — that is exactly what "
+                "hypothesis testing is designed for.\n\n"
                 "MODE 2 — declare a fault hypothesis (suggestion_type='hypothesis'):\n"
-                "  Use this ONLY when you are sufficiently confident about which specific "
-                "components are faulty. The service agent will then attempt to repair/replace "
-                "those components and report whether the system is restored.\n"
+                "  Use this when you are sufficiently confident about which specific components "
+                "are faulty. The service agent will attempt to repair/replace those components "
+                "and report whether the system is restored. This is the preferred way to finish.\n"
                 "  Provide suspected_components (a list of component names/IDs you believe are "
-                "faulty) and optionally hypothesis_explanation.\n\n"
-                "Do not switch to MODE 2 prematurely: a wrong hypothesis has a high fixed cost."
+                "faulty) and optionally hypothesis_explanation.\n"
+                "  A wrong hypothesis carries a significant cost, so do not guess blindly — "
+                "but also do not over-collect information when you have enough to decide.\n\n"
                 "IMPORTANT NOTE ON MODE 2: if you suspect a configuration error (e.g. two cables "
                 "are swapped), then provide all the components involved in the suspected_components "
-                "list. ALWAYS provide one or more compoenntes in suspected_components (even though "
-                "it may happen they do not suffer from an interal fault, but from some configuration "
+                "list. ALWAYS provide one or more components in suspected_components (even though "
+                "it may happen they do not suffer from an internal fault, but from some configuration "
                 "issue)."
             ),
-            model=self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.LLM_ASSISTANT_MODEL),
+            model=self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.DEFAULT_LLM_MODEL),
             output_type=DiagnosticSuggestion,
         )
 
     @property
     def description(self) -> str:
-        return super().description + "_" + self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.LLM_ASSISTANT_MODEL)
+        return super().description + "_" + self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.DEFAULT_LLM_MODEL)
 
     async def setup(self, observations: list[Observation]) -> None:
         self.state.initial_observations = observations.copy()

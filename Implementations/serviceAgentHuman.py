@@ -1,5 +1,5 @@
 from typing import Optional
-from environment_classes import AssistantState, CLIHumanIO, DiagnosticFaultHypothesis, HypothesisVerificationResult, HYPOTHESIS_VERIFICATION_COST, RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticAction, DiagnosticActionResult, VoiceHumanIO
+from environment_classes import AssistantState, CLIHumanIO, DiagnosticFaultHypothesis, HypothesisVerificationResult, FALLBACK_HYPOTHESIS_VERIFICATION_COST, RootCauseDescription, ServiceAgent, SystemDescription, Observation, DiagnosticAction, DiagnosticActionResult, VoiceHumanIO
 from Utilities.caching import async_disk_cache_CLI
 
 
@@ -75,7 +75,7 @@ class ServiceAgentHuman(ServiceAgent):
         if hypothesis.explanation:
             await self.io.prompt(f"  Explanation: {hypothesis.explanation}")
         await self.io.prompt(
-            f"Try repairing/replacing them (verification cost: {HYPOTHESIS_VERIFICATION_COST})."
+            f"Try repairing/replacing them (verification cost: {FALLBACK_HYPOTHESIS_VERIFICATION_COST})."
         )
         valid_outcomes = ["correct", "partial", "wrong"]
         answer = ""
@@ -93,7 +93,7 @@ class ServiceAgentHuman(ServiceAgent):
             hypothesis=hypothesis,
             outcome=answer,
             narrative=narrative,
-            cost=HYPOTHESIS_VERIFICATION_COST,
+            cost=FALLBACK_HYPOTHESIS_VERIFICATION_COST,
         )
 
     async def decide_finish(self, system: SystemDescription, state: AssistantState, root_cause_description: Optional[RootCauseDescription]) -> tuple[bool, Optional[RootCauseDescription], Optional[str]]:

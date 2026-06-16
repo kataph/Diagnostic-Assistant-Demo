@@ -220,6 +220,32 @@ pytest Tests/test_scenario1_spice.py -s   # single file with output
 
 ---
 
+## Cost model
+
+Each diagnostic action and hypothesis verification incurs a cost recorded in the trajectory. The cost model has two tiers depending on whether `SpiceSim` is the service agent.
+
+### Action cost
+
+| Service agent | Cost source | Values |
+|---|---|---|
+| `SpiceSim` | `precise_action_cost` — actual simulation time in minutes | Varies per action type (e.g. `observe_component`=10, `measure_voltage`=20, `replace_component`=120) |
+| `Human`, `LLM`, `Mock` | `ACTION_COST_MAP` fallback | `Observe=1`, `Test=2`, `Adjust=4`, `Replace=12` (qualitative ordering only) |
+
+Both values are logged side-by-side as `kg_cost` (fallback) and `sim_time` (precise) in the debugging log.
+
+### Hypothesis verification cost
+
+Hypothesis verification cost is also computed differently per service agent:
+
+| Service agent | Correct/partial hypothesis | Wrong hypothesis |
+|---|---|---|
+| `SpiceSim` | `apply_repairs()` — sum of actual per-component repair costs: cable reconnection = 10 per port, component replacement = 120 | `_estimate_repair_cost()` — same per-type rates applied to the attempted components, without mutating state |
+| `Human`, `LLM`, `Mock` | `FALLBACK_HYPOTHESIS_VERIFICATION_COST = 120` flat | Same flat cost |
+
+The SpiceSim costs scale naturally with the hypothesis: naming two crossed cables costs 20 (two reconnections at 10 each), while naming one degraded component costs 120. This means MODE 2 hypothesis testing is cost-equivalent to performing the same repairs via MODE 1 actions, with no arbitrage opportunity.
+
+---
+
 ## Logging
 
 Each run produces two outputs under `Logs/`:
