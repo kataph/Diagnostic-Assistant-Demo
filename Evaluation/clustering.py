@@ -9,11 +9,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+import threading
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Module-level cache for SentenceTransformer to avoid concurrent model loading
+_embedding_model_cache: dict[str, "SentenceTransformer"] = {}
+_embedding_model_lock = threading.Lock()
 
 # model used to label clusters
 LABELING_MODEL = "gpt-4.1"
@@ -64,7 +69,11 @@ def embed_intent(
         embeddings = (raw / np.maximum(norms, 1e-9)).astype(np.float64)
     else:
         from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(embedding_model)
+        # Load model once, cache it thread-safely to avoid concurrent loading issues
+        with _embedding_model_lock:
+            if embedding_model not in _embedding_model_cache:
+                _embedding_model_cache[embedding_model] = SentenceTransformer(embedding_model)
+            model = _embedding_model_cache[embedding_model]
         embeddings = model.encode(
             sequences, show_progress_bar=False, convert_to_numpy=True
         ).astype(np.float64)
@@ -85,6 +94,9 @@ def _hdbscan_on_dist(
     n = dist_matrix.shape[0]
     if n == 0:
         return [], None
+    if n == 1:
+        # Single trajectory — assign to cluster 0 with prob 1.0
+        return [0], np.array([1.0])
     if dist_matrix.max() == 0.0:
         return [0] * n, np.ones(n)
     clusterer = hdbscan.HDBSCAN(

@@ -1534,14 +1534,14 @@ def test_3cc_as_s4():
         (OpenInspectionPanel,    {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,       {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
 def test_3cc_as_s4_repair():
     s = build_system_for("3CC-AS.S.4")
     assert_system_broken(s)
-    assert s.test_repair({"ctrl_relay"})
+    assert s.test_repair({"ctrl_cable_out_neg"})
 
 def test_3cc_as_s5():
     s = build_system_for("3CC-AS.S.5")
@@ -1592,7 +1592,7 @@ def test_3cc_as_d2():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -1600,8 +1600,8 @@ def test_3cc_as_d2_repair():
     s = build_system_for("3CC-AS.D.2")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"battery", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_neg"})
+    assert s.test_repair({"battery", "ctrl_cable_out_neg"})
 
 def test_3cc_as_d3():
     s = build_system_for("3CC-AS.D.3")
@@ -1637,7 +1637,7 @@ def test_3cc_as_d4():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -1645,8 +1645,8 @@ def test_3cc_as_d4_repair():
     s = build_system_for("3CC-AS.D.4")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"battery", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_neg"})
+    assert s.test_repair({"battery", "ctrl_cable_out_neg"})
 
 def test_3cc_as_d5():
     s = build_system_for("3CC-AS.D.5")
@@ -1659,7 +1659,7 @@ def test_3cc_as_d5():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -1667,8 +1667,8 @@ def test_3cc_as_d5_repair():
     s = build_system_for("3CC-AS.D.5")
     assert_system_broken(s)
     assert not s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_neg"})
+    assert s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg", "ctrl_cable_out_neg"})
 
 # ── Misleading (M) ───────────────────────────────────────────────────────────
 
@@ -1832,14 +1832,14 @@ def test_3cc_as_l4():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
 def test_3cc_as_l4_repair():
     s = build_system_for("3CC-AS.L.4")
     assert_system_broken(s)
-    assert s.test_repair({"ctrl_relay"})
+    assert s.test_repair({"ctrl_cable_out_neg"})
 
 def test_3cc_as_l5():
     s = build_system_for("3CC-AS.L.5")
@@ -1955,7 +1955,7 @@ def test_3cc_as_u2():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_neg"}),
         (AdjustPotentiometer(0.0), {"subject": "ctrl_sensitivity_pot"}),
         (AdjustPotentiometer(0.25), {"subject": "ctrl_sensitivity_pot"}),
         (AdjustPotentiometer(0.5), {"subject": "ctrl_sensitivity_pot"}),
@@ -1968,9 +1968,9 @@ def test_3cc_as_u2():
 def test_3cc_as_u2_repair():
     s = build_system_for("3CC-AS.U.2")
     assert_system_broken(s)
-    assert not s.test_repair({"ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_neg"})
     assert not s.test_repair({"cube_ctrl"})
-    assert s.test_repair({"ctrl_relay", "cube_ctrl"})
+    assert s.test_repair({"ctrl_cable_out_neg", "cube_ctrl"})
 
 def test_3cc_as_u3():
     s = build_system_for("3CC-AS.U.3")
@@ -2081,14 +2081,14 @@ def test_3cc_cs_s4():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_pos"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
 def test_3cc_cs_s4_repair():
     s = build_system_for("3CC-CS.S.4")
     assert_system_broken(s)
-    assert s.test_repair({"ctrl_relay"})
+    assert s.test_repair({"ctrl_cable_out_pos"})
 
 def test_3cc_cs_s5():
     s = build_system_for("3CC-CS.S.5")
@@ -2141,7 +2141,7 @@ def test_3cc_cs_d2():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_pos"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -2149,8 +2149,8 @@ def test_3cc_cs_d2_repair():
     s = build_system_for("3CC-CS.D.2")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"battery", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_pos"})
+    assert s.test_repair({"battery", "ctrl_cable_out_pos"})
 
 def test_3cc_cs_d3():
     s = build_system_for("3CC-CS.D.3")
@@ -2188,7 +2188,7 @@ def test_3cc_cs_d4():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_pos"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -2196,8 +2196,8 @@ def test_3cc_cs_d4_repair():
     s = build_system_for("3CC-CS.D.4")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"battery", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_pos"})
+    assert s.test_repair({"battery", "ctrl_cable_out_pos"})
 
 def test_3cc_cs_d5():
     s = build_system_for("3CC-CS.D.5")
@@ -2211,7 +2211,7 @@ def test_3cc_cs_d5():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_pos"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
@@ -2219,8 +2219,8 @@ def test_3cc_cs_d5_repair():
     s = build_system_for("3CC-CS.D.5")
     assert_system_broken(s)
     assert not s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg"})
-    assert not s.test_repair({"ctrl_relay"})
-    assert s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg", "ctrl_relay"})
+    assert not s.test_repair({"ctrl_cable_out_pos"})
+    assert s.test_repair({"ctrl_cable_in_pos", "ctrl_cable_in_neg", "ctrl_cable_out_pos"})
 
 # ── Misleading (M 1–5) ───────────────────────────────────────────────────────
 
@@ -2386,14 +2386,14 @@ def test_3cc_cs_l4():
         (OpenInspectionPanel, {"subject": "ctrl_panel"}),
         (InspectConnections,  {"subject": "ctrl_cable_out_pos"}),
         (InspectConnections,  {"subject": "ctrl_cable_in_pos"}),
-        (ReplaceComponent,    {"subject": "ctrl_relay", "part": _RELAY}),
+        (ReconnectCable,      {"subject": "ctrl_cable_out_pos"}),
     ])
     s.simulate(); assert s.is_system_nominal()
 
 def test_3cc_cs_l4_repair():
     s = build_system_for("3CC-CS.L.4")
     assert_system_broken(s)
-    assert s.test_repair({"ctrl_relay"})
+    assert s.test_repair({"ctrl_cable_out_pos"})
 
 def test_3cc_cs_l5():
     s = build_system_for("3CC-CS.L.5")

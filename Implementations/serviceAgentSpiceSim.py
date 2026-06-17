@@ -107,7 +107,7 @@ def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
                 lines.append(f"{comp.display_name}: degraded — {comp._fault_overlay}")
 
     if not lines:
-        return "No circuit-level changes introduced by diagnostics."
+        return None
     return "\n".join(f"  • {l}" for l in lines)
 
 
@@ -240,8 +240,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
 
         fault_snapshot = getattr(system.simulated_system, "_fault_snapshot", None)
         state_summary = _circuit_state_summary(system.simulated_system, fault_snapshot)
-        full_outcome = (f"{narrative}\nCurrent persistent circuit state [differences with the starting state]:\n"
-                        + (f"{state_summary}" if state_summary else "No difference. "))
+        full_outcome = narrative
+        if state_summary:
+            full_outcome += f"\nCurrent persistent circuit state [differences with the starting state]:\n{state_summary}"
         self.logger.info(
             f"Executed '{action.get_name()}' via simulation | "
             f"kg_cost={action.get_cost()} | "
@@ -301,8 +302,8 @@ class ServiceAgentSpiceSim(ServiceAgent):
             if entry.get("action_id") == "verify_repair" and entry.get("subject")
         }
 
-        # If the NL agent could not map the hypothesis to any component, the
-        # suspected components do not exist in the system — verdict is WRONG.
+        # If the NL agent could not map the hypothesis to any component,
+        # the description was not clear enough or did not match any system component.
         if not candidate_ids:
             self.logger.warning(
                 f"verify_hypothesis: NL mapping produced no candidates for "
@@ -312,8 +313,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 hypothesis=hypothesis,
                 outcome="wrong",
                 narrative=(
-                    f"The suspected component(s) {list(hypothesis.suspected_components)} "
-                    f"could not be identified in the system and were not repaired."
+                    f"The suspected component description '{', '.join(hypothesis.suspected_components)}' "
+                    f"could not be mapped to actual system components. "
+                    f"The NL interface was unable to identify which component(s) you meant."
                 ),
                 cost=sim_cost.time,
                 cost_breakdown=verify_breakdown or None,
@@ -400,6 +402,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
             sim.component(cid).display_name
             for cid in candidate_ids if cid in still_broken_ids
         ] or list(hypothesis.suspected_components)
+        # For wrong hypothesis, show both user input and actual parsed component IDs
         if outcome == "correct":
             narrative = (
                 f"Repaired {candidate_names}. All output devices are now lit: "
@@ -411,9 +414,14 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 f"system is still not working — further faults remain."
             )
         else:
+            # Show actual component IDs that were attempted
+            attempted_display = [
+                sim.component(cid).display_name for cid in candidate_ids
+            ]
             narrative = (
-                f"Repair attempt on {list(hypothesis.suspected_components)} had no "
-                f"effect. The suspected components were not found to be faulty."
+                f"Repair attempt on {attempted_display} (user input: "
+                f"{list(hypothesis.suspected_components)}) had no effect. "
+                f"The suspected components were not found to be faulty."
             )
 
         self.logger.info(

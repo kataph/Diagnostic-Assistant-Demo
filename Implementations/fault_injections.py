@@ -109,7 +109,10 @@ def open_component(component_id: str) -> FaultFn:
 def short_component(component_id: str) -> FaultFn:
     """Return a fault function that short-circuits the named component."""
     def _fn(sys: DiagnosableSystem) -> None:
-        _apply(sys, DegradeComponent({"resistance": 0.01}), {"subject": sys.component(component_id)})
+        # Use 0.5 Ω instead of 0.01 Ω to avoid singular matrix errors in SPICE solver
+        # (0.01 Ω with 12V source causes ~1200A, numerically unstable)
+        # 0.5 Ω represents a significant short while remaining solvable
+        _apply(sys, DegradeComponent({"resistance": 0.5}), {"subject": sys.component(component_id)})
     _fn.__name__ = f"short_{component_id}"
     return _fn
 
@@ -225,8 +228,8 @@ def _stack_modules(sys: DiagnosableSystem) -> None:
 
 
 def _als_disconnect_relay_cable(sys: DiagnosableSystem) -> None:
-    """Force the ALS relay permanently open, breaking the 0V return path."""
-    _apply(sys, ForceSwitch(is_closed=False), {"subject": sys.component("ctrl_relay")})
+    """Disconnect the relay output cable on the 0V return path."""
+    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl_cable_out_neg")})
 
 
 # ALS crossed cables: same as 3-cubes
@@ -245,8 +248,8 @@ def _als_remove_all_indicators(sys: DiagnosableSystem) -> None:
 # ---------------------------------------------------------------------------
 
 def _cs_disconnect_relay_cable(sys: DiagnosableSystem) -> None:
-    """Force the current-sensor relay permanently open, breaking the 0V return path."""
-    _apply(sys, ForceSwitch(is_closed=False), {"subject": sys.component("ctrl_relay")})
+    """Disconnect the relay output cable on the 0V return path."""
+    _apply(sys, DisconnectCable(port_names=["n"]), {"subject": sys.component("ctrl_cable_out_pos")})
 
 
 def _cs_force_relay_open(sys: DiagnosableSystem) -> None:
