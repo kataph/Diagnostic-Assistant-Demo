@@ -223,6 +223,7 @@ class Scenario:
     fault_fns: Optional[list[FaultFn]]
     world_context: WorldContext
     system_config_fn: Optional[FaultFn] = field(default=None)
+    min_round_number_allowance: Optional[int] = field(default=None)
 
     @property
     def id(self) -> int:

@@ -515,6 +515,7 @@ def load_scenarios_from_csv(csv_path: Path = _CSV_PATH) -> list[Scenario]:
             fault_label  = row[6].strip()
             description  = row[7].strip()
             obs_str      = row[8].strip()
+            min_rounds_str = row[10].strip()
 
             system_name = _CSV_SYSTEM_MAP.get(system_csv, system_csv)
 
@@ -526,6 +527,14 @@ def load_scenarios_from_csv(csv_path: Path = _CSV_PATH) -> list[Scenario]:
             assert reg_id == scenario_id, (
                 f"Scenario {num}: id mismatch — CSV={scenario_id!r}, registry={reg_id!r}"
             )
+
+            # Parse minimum round number allowance
+            min_round_allowance = None
+            if min_rounds_str:
+                try:
+                    min_round_allowance = int(min_rounds_str)
+                except ValueError:
+                    pass  # Leave as None if not a valid integer
 
             root_cause = RootCauseDescription(
                 root_cause_description_proper=fault_label,
@@ -542,6 +551,7 @@ def load_scenarios_from_csv(csv_path: Path = _CSV_PATH) -> list[Scenario]:
                 fault_fns=fault_fns,
                 world_context=world_ctx,
                 system_config_fn=system_config_fn,
+                min_round_number_allowance=min_round_allowance,
             ))
     return scenarios
 

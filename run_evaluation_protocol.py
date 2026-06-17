@@ -68,6 +68,9 @@ def _parse_args() -> argparse.Namespace:
                         help="Hard cap on batches per scenario (default: unlimited)")
     parser.add_argument("--rounds", type=int, default=10,
                         help="Max diagnostic rounds per scenario run")
+    parser.add_argument("--ignore-max-rounds-allowance", action="store_true", default=False,
+                        help="Ignore the 'minimum round number allowance' column from SCENARIOS_MASTER.csv "
+                             "(restores previous behavior where --rounds is used as absolute max)")
     import os
     _default_concurrent = os.cpu_count() or 4
     parser.add_argument("--max-concurrent", type=int, default=_default_concurrent,
@@ -170,6 +173,7 @@ def main() -> None:
         saboteur_config=saboteur_config,
         service_type=args.service,
         rounds=args.rounds,
+        ignore_max_rounds_allowance=args.ignore_max_rounds_allowance,
         base_dir=Path(__file__).resolve().parent,
         mock_llm_labels=args.mock_llm_labels,
         mock_embeddings=args.mock_embeddings,

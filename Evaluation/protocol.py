@@ -82,6 +82,7 @@ class ProtocolConfig:
     saboteur_config:  dict = field(default_factory=dict)
     service_type: str = "SpiceSimMockNL"
     rounds: int = 10
+    ignore_max_rounds_allowance: bool = False
     base_dir: Path = field(default_factory=lambda: Path("."))
     trajectory_base_dir: Path = field(
         default_factory=lambda: Path("Logs/Trajectories")
@@ -820,12 +821,21 @@ class AdaptiveEvaluationProtocol:
         # Snapshot existing JSONs before running
         existing = set(traj_dir.glob("*_TRAJECTORY.json"))
 
+        # Compute effective rounds: minimum of config rounds and CSV allowance
+        effective_rounds = self.config.rounds
+        if not self.config.ignore_max_rounds_allowance:
+            scenario = next((s for s in SCENARIOS if s.number == scenario_number), None)
+            if scenario and hasattr(scenario, 'min_round_number_allowance'):
+                csv_allowance = scenario.min_round_number_allowance
+                if csv_allowance is not None:
+                    effective_rounds = min(self.config.rounds, csv_allowance)
+
         run_scenario_multiple_times(
             n_runs=self.config.batch_size,
             base_dir=self.config.base_dir,
             forced_scenario=scenario_number,
             assistant=self.config.assistant_type,
-            rounds=self.config.rounds,
+            rounds=effective_rounds,
             system=system_name,
             service=self.config.service_type,
             saboteur="SpiceSim",
