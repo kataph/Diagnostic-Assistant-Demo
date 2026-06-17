@@ -10,7 +10,9 @@ Each agent gets its own bubble colour and alignment:
 from __future__ import annotations
 
 import html
+import re
 from datetime import datetime
+from pathlib import Path
 
 
 _CSS = """
@@ -167,10 +169,24 @@ class ChatLog:
         self._f = open(path, "w", encoding="utf-8")
         self._f.write(_HTML_HEAD.format(css=_CSS, info=_e(session_info)))
         self._f.flush()
+        # Mirror as plain text under ChatsSuccinct (same hierarchy, .txt extension)
+        txt_path = Path(path.replace("/Chats/", "/ChatsSuccinct/")).with_suffix(".txt")
+        txt_path.parent.mkdir(parents=True, exist_ok=True)
+        self._ft = open(txt_path, "w", encoding="utf-8")
+        self._ft.write(f"Diagnostic Session — {session_info}\n{'='*60}\n\n")
 
     # ------------------------------------------------------------------ #
     # Internal                                                             #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _strip_html(h: str) -> str:
+        text = re.sub(r"<[^>]+>", "", h)
+        return html.unescape(text).strip()
+
+    def _txt(self, sender: str, body_html: str) -> None:
+        self._ft.write(f"{sender}\n{self._strip_html(body_html)}\n\n")
+        self._ft.flush()
 
     def _left(self, role: str, emoji: str, sender_label: str, body_html: str) -> None:
         ts = _ts()
@@ -184,6 +200,7 @@ class ChatLog:
             f'</div></div>\n'
         )
         self._f.flush()
+        self._txt(f"{emoji} {sender_label} {ts}", body_html)
 
     def _right(self, role: str, emoji: str, sender_label: str, body_html: str) -> None:
         ts = _ts()
@@ -197,6 +214,7 @@ class ChatLog:
             f'</div></div>\n'
         )
         self._f.flush()
+        self._txt(f"{emoji} {sender_label} {ts}", body_html)
 
     def _centre(self, text: str) -> None:
         self._f.write(
@@ -205,6 +223,8 @@ class ChatLog:
             f'</div>\n'
         )
         self._f.flush()
+        self._ft.write(f"── {text} ──\n\n")
+        self._ft.flush()
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -291,3 +311,4 @@ class ChatLog:
             self._centre(f"── Session ended ── {summary}")
         self._f.write(_HTML_FOOT)
         self._f.close()
+        self._ft.close()
