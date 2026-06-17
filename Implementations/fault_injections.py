@@ -288,9 +288,10 @@ _open_load1_diode       = open_component("load1_load_diode")
 _open_load1_internal    = open_component("load1_internal_bulb")
 _open_ctrl3_green_led   = open_component("ctrl3_green_led")
 
-# CS specific
+# Short components
 _short_main_bulb        = short_component("main_bulb")
 _short_internal_bulb    = short_component("internal_bulb")
+_short_load_diode       = short_component("load_diode")
 
 # Loose connections — 3CC (cable component_id, port that can go loose)
 _loose_3cc_battery_cable        = loose_connection("psu_cable_pos", "p")
@@ -356,7 +357,7 @@ FAULT_FNS_FOR_INJECTIONS: dict[int, tuple[
     9:  ("3CC.D.4",  [_invert_battery, _disconnect_ctrl_cable_out_pos],     None,                       _MT),
     10: ("3CC.D.5",  [_cross_psu_ctrl_cables, _disconnect_ctrl_cable_out_pos], None,                   _MT),
     11: ("3CC.M.1",  [_invert_battery, _open_ctrl_red_led],                 None,                       _MT),
-    12: ("3CC.M.2",  [_invert_battery, _open_load_diode, _burn_main_bulb],  None,                       _MT),
+    12: ("3CC.M.2",  [_invert_battery, _short_load_diode, _burn_main_bulb],  None,                       _MT),
     13: ("3CC.M.3",  [_cross_psu_ctrl_cables, _open_ctrl_red_led],         None,                       _MT),
     14: ("3CC.M.4",  [_burn_main_bulb, _open_psu_green_led],               None,                       _MT),
     15: ("3CC.M.5",  [_burn_main_bulb, _open_internal_bulb],               None,                       _MT),
@@ -434,7 +435,7 @@ FAULT_FNS_FOR_INJECTIONS: dict[int, tuple[
     84: ("3CC-AS.D.4", [_invert_battery, _als_disconnect_relay_cable],      None,                       _MT),
     85: ("3CC-AS.D.5", [_als_cross_psu_ctrl_cables, _als_disconnect_relay_cable], None,                 _MT),
     86: ("3CC-AS.M.1", [_invert_battery, _open_ctrl_red_led],               None,                       _MT),
-    87: ("3CC-AS.M.2", [_invert_battery, _open_load_diode, _burn_main_bulb], None,                     _MT),
+    87: ("3CC-AS.M.2", [_invert_battery, _short_load_diode, _burn_main_bulb], None,                     _MT),
     88: ("3CC-AS.M.3", [_als_cross_psu_ctrl_cables, _open_ctrl_red_led],   None,                       _MT),
     89: ("3CC-AS.M.4", [_burn_main_bulb, _open_psu_green_led],             None,                       _MT),
     90: ("3CC-AS.M.5", [_burn_main_bulb, _open_internal_bulb],             None,                       _MT),
@@ -465,7 +466,7 @@ FAULT_FNS_FOR_INJECTIONS: dict[int, tuple[
     114: ("3CC-CS.D.4", [_invert_battery, _cs_disconnect_relay_cable],      None,                       _MT),
     115: ("3CC-CS.D.5", [_cs_cross_psu_ctrl_cables, _cs_disconnect_relay_cable], None,                  _MT),
     116: ("3CC-CS.M.1", [_invert_battery, _open_ctrl_red_led],              None,                       _MT),
-    117: ("3CC-CS.M.2", [_invert_battery, _open_load_diode, _burn_main_bulb], None,                    _MT),
+    117: ("3CC-CS.M.2", [_invert_battery, _short_load_diode, _burn_main_bulb], None,                    _MT),
     118: ("3CC-CS.M.3", [_cs_cross_psu_ctrl_cables, _open_ctrl_red_led],   None,                       _MT),
     119: ("3CC-CS.M.4", [_burn_main_bulb, _open_psu_green_led],            None,                       _MT),
     120: ("3CC-CS.M.5", [_burn_main_bulb, _open_internal_bulb],            None,                       _MT),
