@@ -11,6 +11,10 @@ from environment_classes import (
 )
 
 
+_RECONNECT_COST = 10.0
+_REPLACE_COST = 120.0
+
+
 def _estimate_repair_cost(sim, component_ids: "set[str]") -> float:
     """
     Estimate the cost a technician would pay to attempt repairing the given
@@ -24,8 +28,6 @@ def _estimate_repair_cost(sim, component_ids: "set[str]") -> float:
     had the attempted repair been on genuinely faulty components.
     """
     from diagnosable_systems_simulation.world.components import Cable
-    _RECONNECT_COST = 10.0
-    _REPLACE_COST = 120.0
     total = 0.0
     for cid in component_ids:
         try:
@@ -34,12 +36,16 @@ def _estimate_repair_cost(sim, component_ids: "set[str]") -> float:
             continue
         if isinstance(comp, Cable):
             orig = getattr(comp, "_orig_connections", {})
+            port_cost = 0.0
             for port_name, node_id in orig.items():
                 port = comp.port(port_name)
                 if not port.is_connected() or port.node_id != node_id:
-                    total += _RECONNECT_COST
+                    port_cost += _RECONNECT_COST
             if getattr(comp, "_detached_cable_ports", {}):
-                total += _RECONNECT_COST * len(comp._detached_cable_ports)
+                port_cost += _RECONNECT_COST * len(comp._detached_cable_ports)
+            # Minimum attempt cost: even a healthy cable costs one reconnect
+            # check when a technician handles it as part of a wrong hypothesis.
+            total += max(port_cost, _RECONNECT_COST)
         else:
             total += _REPLACE_COST
     return total
@@ -80,23 +86,28 @@ def _circuit_state_summary(sim, fault_snapshot: "dict | None" = None) -> str:
                 state = "CLOSED" if current_closed else "OPEN"
                 lines.append(f"{comp.display_name}: {state}")
 
-        # Disconnected ports — only if they were connected in the fault snapshot
-        floating = [p.name for p in comp.ports if not p.is_connected()]
-        if floating:
-            if fault_snapshot is not None:
-                snap_comp_ports = snap_ports.get(cid, {})
-                new_floating = [
-                    pname for pname in floating
-                    if snap_comp_ports.get(pname) is not None
-                ]
-                if new_floating:
+        # Disconnected ports — only report those deliberately disconnected by the
+        # agent (RECONNECTABLE affordance present).  Loose-coupling faults randomly
+        # flip a port's connected state on every simulate(); showing them here would
+        # produce spurious noise that is not caused by any agent action.
+        from diagnosable_systems_simulation.world.affordances import Affordance
+        if Affordance.RECONNECTABLE in comp.affordances._dynamic:
+            floating = [p.name for p in comp.ports if not p.is_connected()]
+            if floating:
+                if fault_snapshot is not None:
+                    snap_comp_ports = snap_ports.get(cid, {})
+                    new_floating = [
+                        pname for pname in floating
+                        if snap_comp_ports.get(pname) is not None
+                    ]
+                    if new_floating:
+                        lines.append(
+                            f"{comp.display_name}: port(s) {new_floating} disconnected by agent"
+                        )
+                else:
                     lines.append(
-                        f"{comp.display_name}: port(s) {new_floating} disconnected (floating)"
+                        f"{comp.display_name}: port(s) {floating} disconnected by agent"
                     )
-            else:
-                lines.append(
-                    f"{comp.display_name}: port(s) {floating} disconnected (floating)"
-                )
 
         # Fault overlays — only if they changed since fault snapshot
         if comp.has_fault():
@@ -210,17 +221,18 @@ class ServiceAgentSpiceSim(ServiceAgent):
         self.logger.info(f"action parsed from text input: {actions}")
         self.logger.info(f"results from the simulation: {[result for action, target, result in results]}")
 
-        # Track components repaired by replace_component diagnostic actions so that
-        # verify_hypothesis can exclude them from fault-snapshot restores (they were
-        # genuinely fixed mid-session and must not be re-faulted during test_repair).
+        # Track components repaired by replace_component or reconnect_cable actions
+        # so that verify_hypothesis and the post-batch reset can exclude them (they were
+        # genuinely fixed mid-session and must not be re-faulted).
         for entry, (_, _, res) in zip(actions, results):
-            if entry.get("action_id") == "replace_component" and res.success:
+            action_id = entry.get("action_id")
+            if action_id in ("replace_component", "reconnect_cable") and res.success:
                 cid = entry.get("subject")
                 if cid:
                     self._repaired_comp_ids.add(cid)
                     self.logger.info(
                         f"execute_action: tracked '{cid}' in _repaired_comp_ids "
-                        f"after successful replace_component"
+                        f"after successful {action_id}"
                     )
 
         # ── Post-batch circuit reset ──────────────────────────────────────────
@@ -297,14 +309,71 @@ class ServiceAgentSpiceSim(ServiceAgent):
             self.configuration.SERVICE_CONFIG.get("model", self.configuration.DEFAULT_SERVICE_MODEL), "verify", self.logger
         )
         verify_breakdown = [(a.action_id, a.cost.time) for a, _, _ in verify_results]
-        candidate_ids: set[str] = {
+        _removed = getattr(sim, "_removed_components", {})
+        _all_subjects = {
             entry["subject"] for entry in entries
             if entry.get("action_id") == "verify_repair" and entry.get("subject")
         }
+        candidate_ids: set[str] = _all_subjects - set(_removed)
+        _missing_ids: set[str] = _all_subjects & set(_removed)  # removed from system
+
+        # If any candidate is a PhysicalEnclosure that is NOT referenced by any
+        # coupling as a shielding/sensor enclosure, it is a plain module
+        # (power supply, control, load cube). Modules cannot be "repaired" — they
+        # are logical aggregates.  Charge a default penalty
+        # and ask the assistant to target a specific component inside.
+        from diagnosable_systems_simulation.world.components import PhysicalEnclosure as _PE
+
+        def _is_sensor_enclosure(enc_comp) -> bool:
+            """True if this enclosure is referenced by a coupling (e.g. ALS shielding)."""
+            for coupling in sim._runner.couplings:
+                if enc_comp in getattr(coupling, "shielding_enclosures", []):
+                    return True
+            return False
+
+        plain_module_candidates = {
+            cid for cid in candidate_ids
+            if isinstance(sim.all_components().get(cid), _PE)
+            and not _is_sensor_enclosure(sim.all_components()[cid])
+        }
+        if plain_module_candidates:
+            module_names = [sim.component(cid).display_name for cid in plain_module_candidates]
+            self.logger.warning(
+                f"verify_hypothesis: hypothesis targets plain module(s) {module_names} "
+                f"instead of specific components — charging default cost and rejecting."
+            )
+            return HypothesisVerificationResult(
+                hypothesis=hypothesis,
+                outcome="wrong",
+                narrative=(
+                    f"The hypothesis targeted module(s) {module_names}, but modules are "
+                    f"functional aggregates — they cannot be repaired directly. "
+                    f"Please identify the specific component(s) inside the module that are faulty "
+                    f"(e.g., a cable, a bulb, a diode, a relay) or manipulate the module enclosure."
+                ),
+                cost=_REPLACE_COST,
+                cost_breakdown=verify_breakdown or None,
+            )
 
         # If the NL agent could not map the hypothesis to any component,
         # the description was not clear enough or did not match any system component.
         if not candidate_ids:
+            if _missing_ids:
+                missing_names = [_removed[cid] for cid in _missing_ids]
+                self.logger.warning(
+                    f"verify_hypothesis: all candidates {_missing_ids} are removed components."
+                )
+                return HypothesisVerificationResult(
+                    hypothesis=hypothesis,
+                    outcome="wrong",
+                    narrative=(
+                        f"The suspected component(s) {missing_names} have been physically "
+                        f"removed from the system and cannot be repaired. "
+                        f"Please identify a component that is still present."
+                    ),
+                    cost=sim_cost.time,
+                    cost_breakdown=verify_breakdown or None,
+                )
             self.logger.warning(
                 f"verify_hypothesis: NL mapping produced no candidates for "
                 f"{hypothesis.suspected_components}; returning wrong verdict."
@@ -323,6 +392,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
 
         # --- Identify all broken components in the current fault state --------
         from diagnosable_systems_simulation.world.components import Cable as _Cable
+        from diagnosable_systems_simulation.electrical_simulation.couplings import LooseConnectionCoupling as _LCC
 
         def _is_wrong_node(comp) -> bool:
             """True for a cable with a port connected to the wrong net."""
@@ -336,11 +406,14 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 for p in comp.ports
             )
 
+        loose_ids = {c.component_id for c in sim._runner.couplings if isinstance(c, _LCC)}
+
         still_broken_ids = {
             cid for cid, c in sim.all_components().items()
             if (Affordance.RECONNECTABLE in c.affordances.all_active(c, sim.context))
             or c.has_fault()
             or _is_wrong_node(c)
+            or cid in loose_ids
         }
         actually_faulty = candidate_ids & still_broken_ids
 
@@ -360,10 +433,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
             outcome = "wrong"
 
         # --- Compute repair cost ----------------------------------------------
-        # correct/partial: use apply_repairs() which charges actual per-component
-        # costs (cable reconnection = 10, component replacement = 120).
-        # wrong: estimate what the failed attempt would have cost using the same
-        # per-type rates, without mutating state.
+        # Charge for diagnostic attempt on ALL candidates the NL identified,
+        # regardless of which ones were actually faulty. This reflects the true
+        # technician cost: inspecting/attempting repair on all suspected components.
         repair_cost_time: float = 0.0
         if outcome == "wrong":
             repair_cost_time = _estimate_repair_cost(sim, candidate_ids)
@@ -386,7 +458,10 @@ class ServiceAgentSpiceSim(ServiceAgent):
                 # exit, so confirmed components are currently faulted again.
                 # Apply the repairs now so that restore_snapshot(exclude_ids)
                 # leaves those components in the repaired state.
-                repair_cost_time = sim.apply_repairs(self._repaired_comp_ids).time
+                sim.apply_repairs(self._repaired_comp_ids)
+                # Cost is for the diagnostic attempt on all candidates, not just
+                # the ones that needed repair.
+                repair_cost_time = _estimate_repair_cost(sim, candidate_ids)
                 # For repositioned enclosures: set is_rotated=True before the
                 # snapshot restore so that restore_snapshot(exclude_ids=...) skips
                 # them and leaves is_rotated=True permanently.
@@ -402,26 +477,35 @@ class ServiceAgentSpiceSim(ServiceAgent):
             sim.component(cid).display_name
             for cid in candidate_ids if cid in still_broken_ids
         ] or list(hypothesis.suspected_components)
+
+        missing_note = (
+            f" Note: {[_removed[cid] for cid in _missing_ids]} could not be "
+            f"repaired — those components have been physically removed from the system."
+            if _missing_ids else ""
+        )
+
+        # Cost breakdown for transparency
+        cost_msg = f" [Cost: {repair_cost_time:.0f}s — diagnostic attempt on {len(candidate_ids)} component(s)]"
+
         # For wrong hypothesis, show both user input and actual parsed component IDs
         if outcome == "correct":
             narrative = (
                 f"Repaired {candidate_names}. All output devices are now lit: "
-                f"system fully restored."
+                f"system fully restored.{cost_msg}{missing_note}"
             )
         elif outcome == "partial":
             narrative = (
                 f"Confirmed faulty: {candidate_names}. Repaired them, but the "
-                f"system is still not working — further faults remain."
+                f"system is still not working — further faults remain.{cost_msg}{missing_note}"
             )
         else:
-            # Show actual component IDs that were attempted
             attempted_display = [
                 sim.component(cid).display_name for cid in candidate_ids
             ]
             narrative = (
                 f"Repair attempt on {attempted_display} (user input: "
                 f"{list(hypothesis.suspected_components)}) had no effect. "
-                f"The suspected components were not found to be faulty."
+                f"The suspected components were not found to be faulty.{cost_msg}{missing_note}"
             )
 
         self.logger.info(
@@ -458,13 +542,11 @@ class ServiceAgentSpiceSim(ServiceAgent):
             nominal_lit = getattr(sim, "_nominal_emitting_light", frozenset())
             if nominal_lit:
                 result = await asyncio.to_thread(sim.simulate)
-                # HACK: for the ambient-light-sensor system the coupling loop
-                # may not converge (flickering fault), so a non-converged
-                # result with the lamp appearing on is NOT a real fix.
-                # Gate the success check on convergence for that system only.
-                is_als = getattr(sim, "name", None) == "ambient_light_sensor"
+                # A non-converged result means the circuit is oscillating (e.g. a
+                # shorted lamp tripping a current-sensing relay in a loop). Never
+                # treat a non-converged simulation as a successful repair.
                 has_loose = sim.context.extra.get("has_loose_connection", False)
-                if (not is_als or result.converged) and not has_loose and result.emitting_light >= nominal_lit:
+                if result.converged and not has_loose and result.emitting_light >= nominal_lit:
                     self.logger.info(
                         "ServiceAgentSpiceSim: system_restored_via_action — "
                         "lamp is on, ending session as success."
