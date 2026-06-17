@@ -101,7 +101,15 @@ def open_component(component_id: str) -> FaultFn:
     def _fn(sys: DiagnosableSystem) -> None:
         if component_id not in sys.all_components():
             return
-        _apply(sys, DegradeComponent({"resistance": 1e9}), {"subject": sys.component(component_id)})
+        from diagnosable_systems_simulation.world.components import Diode
+        comp = sys.component(component_id)
+        overlay = {"resistance": 1e9}
+        # For diodes: also set forward_voltage > 5 V so TestDiode reports "open circuit"
+        # instead of the nominal Vf. The solver ignores forward_voltage when resistance
+        # is set, so this has no effect on the electrical simulation.
+        if isinstance(comp, Diode):
+            overlay["forward_voltage"] = 99.0
+        _apply(sys, DegradeComponent(overlay), {"subject": comp})
     _fn.__name__ = f"open_{component_id}"
     return _fn
 
@@ -112,7 +120,14 @@ def short_component(component_id: str) -> FaultFn:
         # Use 0.5 Ω instead of 0.01 Ω to avoid singular matrix errors in SPICE solver
         # (0.01 Ω with 12V source causes ~1200A, numerically unstable)
         # 0.5 Ω represents a significant short while remaining solvable
-        _apply(sys, DegradeComponent({"resistance": 0.5}), {"subject": sys.component(component_id)})
+        from diagnosable_systems_simulation.world.components import Diode
+        comp = sys.component(component_id)
+        overlay = {"resistance": 0.5}
+        # For diodes: also set forward_voltage ≈ 0 so TestDiode reports "shorted".
+        # The solver ignores forward_voltage when resistance is set.
+        if isinstance(comp, Diode):
+            overlay["forward_voltage"] = 0.0
+        _apply(sys, DegradeComponent(overlay), {"subject": comp})
     _fn.__name__ = f"short_{component_id}"
     return _fn
 
