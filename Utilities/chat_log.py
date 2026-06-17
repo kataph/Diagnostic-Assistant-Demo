@@ -243,7 +243,7 @@ class ChatLog:
         """Green left bubble — assistant suggesting a diagnostic action."""
         tag = f'<span class="tag">{_e(action_type)}</span>'
         body = (
-            f'<div class="body">{tag}<b>{_e(target)}</b>'
+            f'<div class="body">{tag} <b>{_e(target)}</b>'
             + (f'\n{_e(description)}' if description else '')
             + '</div>'
         )
