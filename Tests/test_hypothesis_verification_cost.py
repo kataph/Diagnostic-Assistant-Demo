@@ -95,12 +95,14 @@ class TestEstimateRepairCost:
         cost = _estimate_repair_cost(sys_, {target_id})
         assert cost == 120.0
 
-    def test_non_faulty_cable_costs_zero(self):
-        """A cable with no faulted ports: no reconnections needed, cost = 0."""
+    def test_non_faulty_cable_costs_minimum(self):
+        """A cable with no faulted ports still costs _RECONNECT_COST (10s): the
+        technician had to inspect and attempt the repair even on a healthy cable."""
+        from Implementations.serviceAgentSpiceSim import _RECONNECT_COST
         sys_ = _build_faulted_system()
         cid = _first_cable_id(sys_)
         cost = _estimate_repair_cost(sys_, {cid})
-        assert cost == 0.0
+        assert cost == _RECONNECT_COST
 
     def test_crossed_cables_cost_per_port(self):
         """Two crossed cables (polarity swap): cost = 10 per wrong-net port reconnection.

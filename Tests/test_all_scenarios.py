@@ -287,7 +287,8 @@ def test_3cc_m2_repair():
     s = build_system_for("3CC.M.2")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"main_bulb"})
+    # shorted diode bypasses polarity protection, so lamp repair alone restores the circuit
+    assert s.test_repair({"main_bulb"})
     assert s.test_repair({"battery", "main_bulb"})
 
 def test_3cc_m3():
@@ -355,8 +356,8 @@ def test_3cc_m5():
 def test_3cc_m5_repair():
     s = build_system_for("3CC.M.5")
     assert_system_broken(s)
-    assert not s.test_repair({"main_bulb"})
-    assert not s.test_repair({"internal_bulb"})
+    assert s.test_repair({"main_bulb"})           # main function restored — sufficient
+    assert not s.test_repair({"internal_bulb"})   # indicator only — main lamp still burned
     assert s.test_repair({"main_bulb", "internal_bulb"})
 
 # ── Limited Observability (L) ─────────────────────────────────────────────────
@@ -849,8 +850,8 @@ def test_10cc_m5():
 def test_10cc_m5_repair():
     s = build_system_for("10CC.M.5")
     assert_system_broken(s)
-    assert not s.test_repair({"main_bulb"})
-    assert not s.test_repair({"internal_bulb"})
+    assert s.test_repair({"main_bulb"})           # main function restored — sufficient
+    assert not s.test_repair({"internal_bulb"})   # indicator only — main lamp still burned
     assert s.test_repair({"main_bulb", "internal_bulb"})
 
 # ── Limited Observability (L) ─────────────────────────────────────────────────
@@ -1056,6 +1057,7 @@ def test_dcac_s3():
 
 def test_dcac_s3_repair():
     s = build_system_for("DCAC.S.3")
+    assert_system_broken(s)
     assert s.test_repair({"load1_load_diode"})
 
 def test_dcac_s4():
@@ -1265,8 +1267,8 @@ def test_dcac_m3():
 def test_dcac_m3_repair():
     s = build_system_for("DCAC.M.3")
     assert_system_broken(s)
-    assert not s.test_repair({"load1_main_bulb"})
-    assert not s.test_repair({"load1_internal_bulb"})
+    assert s.test_repair({"load1_main_bulb"})           # main function restored — sufficient
+    assert not s.test_repair({"load1_internal_bulb"})   # indicator only — main lamp still burned
     assert s.test_repair({"load1_main_bulb", "load1_internal_bulb"})
 
 def test_dcac_m4():
@@ -1361,6 +1363,7 @@ def test_dcac_l3():
 
 def test_dcac_l3_repair():
     s = build_system_for("DCAC.L.3")
+    assert_system_broken(s)
     assert s.test_repair({"load1_load_diode"})
 
 def test_dcac_l4():
@@ -1705,7 +1708,8 @@ def test_3cc_as_m2_repair():
     s = build_system_for("3CC-AS.M.2")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"main_bulb"})
+    # shorted diode bypasses polarity protection, so lamp repair alone restores the circuit
+    assert s.test_repair({"main_bulb"})
     assert s.test_repair({"battery", "main_bulb"})
 
 def test_3cc_as_m3():
@@ -1770,8 +1774,8 @@ def test_3cc_as_m5():
 def test_3cc_as_m5_repair():
     s = build_system_for("3CC-AS.M.5")
     assert_system_broken(s)
-    assert not s.test_repair({"main_bulb"})
-    assert not s.test_repair({"internal_bulb"})
+    assert s.test_repair({"main_bulb"})           # main function restored — sufficient
+    assert not s.test_repair({"internal_bulb"})   # indicator only — main lamp still burned
     assert s.test_repair({"main_bulb", "internal_bulb"})
 
 # ── Limited Observability (L) ─────────────────────────────────────────────────
@@ -2258,7 +2262,8 @@ def test_3cc_cs_m2_repair():
     s = build_system_for("3CC-CS.M.2")
     assert_system_broken(s)
     assert not s.test_repair({"battery"})
-    assert not s.test_repair({"main_bulb"})
+    # shorted diode bypasses polarity protection, so lamp repair alone restores the circuit
+    assert s.test_repair({"main_bulb"})
     assert s.test_repair({"battery", "main_bulb"})
 
 def test_3cc_cs_m3():
@@ -2324,8 +2329,8 @@ def test_3cc_cs_m5():
 def test_3cc_cs_m5_repair():
     s = build_system_for("3CC-CS.M.5")
     assert_system_broken(s)
-    assert not s.test_repair({"main_bulb"})
-    assert not s.test_repair({"internal_bulb"})
+    assert s.test_repair({"main_bulb"})           # main function restored — sufficient
+    assert not s.test_repair({"internal_bulb"})   # indicator only — main lamp still burned
     assert s.test_repair({"main_bulb", "internal_bulb"})
 
 # ── Limited Observability (L) ─────────────────────────────────────────────────

@@ -71,9 +71,15 @@ def run_sequence(sys_, steps: list[Step]) -> None:
         if isinstance(action, ReplaceComponent):
             # Remove loose coupling BEFORE the simulate so the replacement cable stays connected.
             subj_id = targets["subject"].component_id
-            sys_._runner.couplings = [
-                c for c in sys_._runner.couplings
-                if not (isinstance(c, LooseConnectionCoupling) and c.component_id == subj_id)
-            ]
+            removed = [c for c in sys_._runner.couplings
+                       if isinstance(c, LooseConnectionCoupling) and c.component_id == subj_id]
+            sys_._runner.couplings = [c for c in sys_._runner.couplings if c not in removed]
+            # If the coupling left the port disconnected, reconnect it now so
+            # ReplaceComponent sees a connected cable (it relies on _orig_connections
+            # which LooseConnectionCoupling cables don't have).
+            for c in removed:
+                if c._currently_disconnected and c._saved_node is not None:
+                    sys_._graph.reconnect_port(c.component_id, c.port_name, c._saved_node)
+                    c._currently_disconnected = False
         result = sys_.apply_action(action, targets)
         assert result.success, f"{type(action).__name__} failed: {result.message}"
