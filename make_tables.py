@@ -395,6 +395,173 @@ def per_scenario_table(runs: list[tuple[str, dict[int, dict]]]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Main results table  (system × model, success/actions/cost, best bolded)
+# ---------------------------------------------------------------------------
+
+def _wilson_ci(successes: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
+    """Wilson score confidence interval."""
+    if n == 0:
+        return float("nan"), float("nan"), float("nan")
+    p = successes / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    margin = z * (p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5 / denom
+    return p, max(0.0, centre - margin), min(1.0, centre + margin)
+
+
+def main_results_table(
+    runs: list[tuple[str, dict[int, dict]]],
+    checkpoint_dir: Path,
+    specs: list[tuple[str, str]],
+) -> str:
+    """
+    Main results table for the paper.
+    Rows: one per system + Overall.
+    Columns: for each model — Success% [CI], Mean actions, Mean cost.
+    Best value per row bolded.
+    Success rate CI computed from raw trajectory counts via Wilson interval.
+
+    Also loads raw trajectory end values from checkpoint.json for accurate
+    success counts (rather than relying on final_report.txt point estimates).
+    """
+    import math
+
+    # Load raw trajectory-level data per (assistant, run_id) for Wilson CIs
+    raw_counts: dict[str, dict[int, dict]] = {}  # label -> scenario -> {n, n_succ}
+    for assistant, run_id in specs:
+        run_dir = checkpoint_dir / assistant / run_id
+        label = next(
+            (name for name, _ in runs
+             if name == assistant_label(assistant, run_id, checkpoint_dir)),
+            assistant,
+        )
+        sc_counts: dict[int, dict] = {}
+        for ckpt_path in sorted(run_dir.glob("*/checkpoint.json"),
+                                key=lambda p: int(p.parent.name)):
+            try:
+                ckpt = json.loads(ckpt_path.read_text())
+            except Exception:
+                continue
+            snum = ckpt.get("scenario_number")
+            if snum is None:
+                continue
+            n_total = 0
+            n_succ = 0
+            for tpath in ckpt.get("trajectory_paths", []):
+                try:
+                    t = json.loads(Path(tpath).read_text())
+                except Exception:
+                    continue
+                end = t.get("end", "")
+                if end == "llm_truncation":
+                    continue
+                n_total += 1
+                if end in ("success", "success_no_hypothesis"):
+                    n_succ += 1
+            sc_counts[snum] = {"n": n_total, "n_succ": n_succ}
+        raw_counts[label] = sc_counts
+
+    n_runs = len(runs)
+    col_spec = "l" + "rrr" * n_runs
+    mid_cols = "".join(f"\\cmidrule(lr){{{2 + i*3}-{4 + i*3}}}" for i in range(n_runs))
+    hdr_names = " & ".join(
+        f"\\multicolumn{{3}}{{c}}{{\\textbf{{{name}}}}}" for name, _ in runs
+    )
+    hdr_cols = " & ".join("Succ (95\\%~CI) & Acts & Cost" for _ in runs)
+
+    lines = [
+        "\\begin{table}[htbp]", "\\centering",
+        "\\caption{Main results: success rate (Wilson 95\\% CI), mean actions, and mean cost "
+        "per system and model. Best value per row in bold.}",
+        "\\label{tab:main_results}", "\\small",
+        f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
+        f" & {hdr_names} \\\\",
+        mid_cols,
+        f"\\textbf{{System}} & {hdr_cols} \\\\",
+        "\\midrule",
+    ]
+
+    systems_iter = list(SYSTEM_RANGES.items()) + [("_overall", None)]
+
+    for sys, rng in systems_iter:
+        is_overall = sys == "_overall"
+        sys_label = "\\textbf{Overall}" if is_overall else SYSTEM_LABELS[sys]
+        if is_overall:
+            lines.append("\\midrule")
+        nums = None if is_overall else list(rng)
+
+        # Collect per-run values
+        row_succs: list[str] = []
+        row_acts: list[float] = []
+        row_costs: list[float] = []
+
+        for name, data in runs:
+            if is_overall:
+                sc_list = list(data.keys())
+            else:
+                sc_list = [n for n in nums if n in data]
+
+            # Success rate via Wilson
+            counts = raw_counts.get(name, {})
+            n_total = sum(counts.get(s, {}).get("n", 0) for s in sc_list)
+            n_succ  = sum(counts.get(s, {}).get("n_succ", 0) for s in sc_list)
+            p, lo, hi = _wilson_ci(n_succ, n_total)
+
+            if math.isnan(p):
+                row_succs.append("--")
+            else:
+                row_succs.append(f"{p*100:.1f} [{lo*100:.1f}, {hi*100:.1f}]")
+
+            acts  = [data[s]["n_actions"]  for s in sc_list if s in data and data[s]["n_actions"]  == data[s]["n_actions"]]
+            costs = [data[s]["total_cost"] for s in sc_list if s in data and data[s]["total_cost"] == data[s]["total_cost"]]
+            row_acts.append(statistics.mean(acts)   if acts  else float("nan"))
+            row_costs.append(statistics.mean(costs) if costs else float("nan"))
+
+        # Bold best values
+        valid_acts  = [v for v in row_acts  if not math.isnan(v)]
+        valid_costs = [v for v in row_costs if not math.isnan(v)]
+        best_act  = min(valid_acts)  if valid_acts  else None
+        best_cost = min(valid_costs) if valid_costs else None
+
+        # For success, best = highest p (parse from string)
+        succ_vals = []
+        for s in row_succs:
+            try:
+                succ_vals.append(float(s.split()[0]))
+            except Exception:
+                succ_vals.append(float("nan"))
+        valid_succ = [v for v in succ_vals if not math.isnan(v)]
+        best_succ = max(valid_succ) if valid_succ else None
+
+        cells = []
+        for i in range(n_runs):
+            s_str = row_succs[i]
+            a_val = row_acts[i]
+            c_val = row_costs[i]
+
+            # Bold success if best
+            if best_succ is not None and succ_vals[i] == best_succ:
+                s_cell = f"\\textbf{{{s_str}}}\\%"
+            else:
+                s_cell = f"{s_str}\\%" if s_str != "--" else "--"
+
+            a_cell = f"{a_val:.2f}" if not math.isnan(a_val) else "--"
+            c_cell = f"{c_val:.0f}" if not math.isnan(c_val) else "--"
+
+            if best_act is not None and a_val == best_act:
+                a_cell = f"\\textbf{{{a_cell}}}"
+            if best_cost is not None and c_val == best_cost:
+                c_cell = f"\\textbf{{{c_cell}}}"
+
+            cells.append(f"{s_cell} & {a_cell} & {c_cell}")
+
+        lines.append(f"{sys_label} & " + " & ".join(cells) + " \\\\")
+
+    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Table 3: system-level aggregate
 # ---------------------------------------------------------------------------
 
@@ -999,6 +1166,173 @@ def generate_rubric_radar_charts(
     return latex_blocks
 
 
+def _run_overall_means(qual_data: dict[int, dict]) -> list[float]:
+    """Return mean rating (1-3) per rubric dim across all scenarios."""
+    dim_vals: dict[str, list[float]] = {d: [] for d in RUBRIC_DIMS}
+    for q in qual_data.values():
+        for rs in q.get("rubric_scores", []):
+            for dim in RUBRIC_DIMS:
+                dv = rs.get(dim)
+                if isinstance(dv, dict):
+                    v = _RATING_NUM.get(dv.get("rating", "").lower().strip())
+                    if v is not None:
+                        dim_vals[dim].append(float(v))
+    return [
+        (sum(dim_vals[d]) / len(dim_vals[d])) if dim_vals[d] else float("nan")
+        for d in RUBRIC_DIMS
+    ]
+
+
+def generate_overlay_radar_chart(
+    runs_qual: list[tuple[str, dict[int, dict]]],
+    images_dir: Path,
+) -> tuple[str, str] | None:
+    """
+    Single polar chart with one polygon per model, aggregated over all scenarios.
+    Returns (latex_figure_code, description) or None if no data / matplotlib missing.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        return None
+
+    if not runs_qual:
+        return None
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+    dim_labels = [RUBRIC_DIM_LABELS[d] for d in RUBRIC_DIMS]
+    N = len(RUBRIC_DIMS)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+
+    fig, ax = plt.subplots(figsize=(4.5, 4.5), subplot_kw={"projection": "polar"})
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for level, ls, lc in [(1, ":", "#cccccc"), (2, "--", "#aaaaaa"), (3, "-", "#888888")]:
+        ax.plot(angles, [level] * N + [level], linestyle=ls, color=lc, linewidth=0.7, zorder=1)
+
+    for idx, (run_name, qual_data) in enumerate(runs_qual):
+        means = _run_overall_means(qual_data)
+        if all(np.isnan(means)):
+            continue
+        vals = means + means[:1]
+        color = colors[idx % len(colors)]
+        ax.plot(angles, vals, color=color, linewidth=1.8, label=run_name, zorder=3)
+        ax.fill(angles, vals, alpha=0.12, color=color, zorder=2)
+
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(dim_labels, size=7)
+    ax.set_yticks([1, 2, 3])
+    ax.set_yticklabels(["L", "M", "H"], size=6)
+    ax.set_ylim(0, 3.3)
+    ax.xaxis.grid(False)
+    ax.yaxis.grid(True, color="#bbbbbb", linewidth=0.6)
+    ax.spines["polar"].set_visible(False)
+    ax.legend(loc="upper right", bbox_to_anchor=(1.35, 1.15), fontsize=7)
+    fig.suptitle("Rubric ratings — all scenarios", size=9)
+    plt.tight_layout()
+
+    fname = "radar_overlay_all_scenarios.pdf"
+    fig.savefig(images_dir / fname, bbox_inches="tight")
+    plt.close(fig)
+
+    latex = (
+        "\\begin{figure}[htbp]\n\\centering\n"
+        f"  \\includegraphics[width=0.6\\linewidth]{{Images/{fname}}}\n"
+        "\\caption{Rubric ratings overlay radar chart across all scenarios. "
+        "Each polygon is one model; axes are the five rubric dimensions; "
+        "reference circles: L=1, M=2, H=3.}\n"
+        "\\label{fig:radar:overlay:all}\n"
+        "\\end{figure}\n"
+    )
+    return latex, "Overlay radar: all models / all scenarios"
+
+
+def generate_delta_radar_charts(
+    runs_qual: list[tuple[str, dict[int, dict]]],
+    images_dir: Path,
+) -> list[tuple[str, str]]:
+    """
+    For every pair of runs (A, B), produce a delta radar: A - B per dimension.
+    Positive = A better, negative = B better. Zero circle drawn for reference.
+    Returns list of (latex_figure_code, description).
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        return []
+
+    if len(runs_qual) < 2:
+        return []
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+    dim_labels = [RUBRIC_DIM_LABELS[d] for d in RUBRIC_DIMS]
+    N = len(RUBRIC_DIMS)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+
+    latex_blocks: list[tuple[str, str]] = []
+    pairs = [(i, j) for i in range(len(runs_qual)) for j in range(i + 1, len(runs_qual))]
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    for i, j in pairs:
+        name_a, qual_a = runs_qual[i]
+        name_b, qual_b = runs_qual[j]
+        means_a = np.array(_run_overall_means(qual_a))
+        means_b = np.array(_run_overall_means(qual_b))
+        delta = means_a - means_b  # positive = A better
+
+        fig, ax = plt.subplots(figsize=(4.0, 4.0), subplot_kw={"projection": "polar"})
+
+        # Zero reference circle
+        ax.plot(angles, [0.0] * N + [0.0], linestyle="-", color="#888888", linewidth=0.9, zorder=1)
+        # ±1 guides
+        for level, ls in [(1.0, "--"), (-1.0, "--")]:
+            ax.plot(angles, [level] * N + [level], linestyle=ls, color="#cccccc", linewidth=0.6, zorder=1)
+
+        vals = delta.tolist() + [delta[0]]
+        color = colors[0]
+        ax.plot(angles, vals, color=color, linewidth=1.8, zorder=3)
+        ax.fill(angles, vals, alpha=0.18, color=color, zorder=2)
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(dim_labels, size=7)
+        ax.set_ylim(-2, 2)
+        ax.set_yticks([-1, 0, 1])
+        ax.set_yticklabels(["-1", "0", "+1"], size=6)
+        ax.xaxis.grid(False)
+        ax.yaxis.grid(True, color="#bbbbbb", linewidth=0.6)
+        ax.spines["polar"].set_visible(False)
+        ax.set_title(f"{name_a} − {name_b}", size=7, pad=8, fontweight="bold")
+        plt.tight_layout()
+
+        safe_a = name_a.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        safe_b = name_b.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        fname = f"radar_delta_{safe_a}_vs_{safe_b}.pdf"
+        fig.savefig(images_dir / fname, bbox_inches="tight")
+        plt.close(fig)
+
+        latex = (
+            "\\begin{figure}[htbp]\n\\centering\n"
+            f"  \\includegraphics[width=0.55\\linewidth]{{Images/{fname}}}\n"
+            f"\\caption{{Delta radar chart: {name_a} $-$ {name_b}. "
+            "Positive values indicate {name_a} scores higher on that dimension; "
+            "negative values indicate {name_b} scores higher. "
+            "Reference circle at 0; dashed guides at $\\pm1$.}}\n"
+            f"\\label{{fig:radar:delta:{safe_a}:{safe_b}}}\n"
+            "\\end{figure}\n"
+        )
+        latex_blocks.append((latex, f"Delta radar: {name_a} vs {name_b}"))
+
+    return latex_blocks
+
+
 # ---------------------------------------------------------------------------
 # Table 6: qualitative aggregation
 # ---------------------------------------------------------------------------
@@ -1370,6 +1704,12 @@ def main() -> None:
     print("\n")
     print(text_summary(runs))
 
+    # --- Main results table ---
+    t_main = main_results_table(runs, ckpt, specs)
+    print("\n% === MAIN RESULTS TABLE ===")
+    print(t_main)
+    all_latex.insert(0, f"% === MAIN RESULTS TABLE ===\n{t_main}")
+
     # --- Tables 2-4 ---
     t2 = per_scenario_table(runs)
     t3 = aggregate_table_by_system(runs)
@@ -1436,7 +1776,7 @@ def main() -> None:
             print(t)
         all_latex += [f"% === Qualitative aggregate ===\n" + "\n\n".join(qual_latex)]
 
-        # --- Radar charts ---
+        # --- Radar charts (per fault type, per run) ---
         radar_blocks = generate_rubric_radar_charts(runs_qual, runs, images_dir)
         if radar_blocks:
             print(f"\n% === Rubric radar charts (saved to {images_dir}/) ===")
@@ -1446,6 +1786,25 @@ def main() -> None:
                 print(latex)
                 radar_latex_parts.append(latex)
             all_latex.append("% === Radar charts ===\n" + "\n".join(radar_latex_parts))
+
+        # --- Overlay radar (all models, all scenarios) ---
+        overlay = generate_overlay_radar_chart(runs_qual, images_dir)
+        if overlay:
+            latex, desc = overlay
+            print(f"\n% === {desc} ===")
+            print(latex)
+            all_latex.append("% === Overlay radar ===\n" + latex)
+
+        # --- Delta radar (pairwise model comparisons) ---
+        delta_blocks = generate_delta_radar_charts(runs_qual, images_dir)
+        if delta_blocks:
+            print(f"\n% === Delta radar charts ===")
+            delta_latex_parts = []
+            for latex, desc in delta_blocks:
+                print(f"% {desc}")
+                print(latex)
+                delta_latex_parts.append(latex)
+            all_latex.append("% === Delta radar charts ===\n" + "\n".join(delta_latex_parts))
 
         print("\n" + "=" * 60)
         print("QUALITATIVE PROSE SUMMARY")

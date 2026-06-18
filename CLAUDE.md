@@ -214,6 +214,7 @@ The conversation passed to the LLM is a flat sequence of user-role messages: sys
 - `Agent.instructions` only accepts a string — images cannot be placed there, so the system description must stay as a user message.
 - Adding assistant turns between user messages would double token count with no new information: each action outcome already contains the `DESCRIPTION` field from the assistant's prior suggestion, so the model is not reasoning blind.
 - The flat structure handles pre-session observations naturally — outcomes injected before the assistant starts fit seamlessly without requiring strict user/assistant turn alternation.
+- Interleaving assistant turns would cause the model to re-read its own prior suggestions as first-person decisions, anchoring it to earlier hypotheses. In the flat structure, prior suggestions appear only as the `DESCRIPTION` field in outcome messages — framed as "an action was taken", a weaker anchor that leaves more room for hypothesis revision.
 
 **Component targeting in diagnostics:**
 - The LLM assistant must reference components found in the system description and schematics (e.g., "battery", "the main lamp", "the control LED", "the load diode").

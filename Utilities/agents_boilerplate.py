@@ -15,6 +15,14 @@ from environment_classes import SystemDescription
 # 3. The flat structure handles pre-session observations naturally — action
 #    outcomes injected before the assistant starts are seamlessly part of
 #    context without requiring strict user/assistant turn alternation.
+#
+# 4. Interleaving assistant turns would cause the model to re-read its own
+#    prior suggestions as first-person decisions ("I said this"), which
+#    anchors it to earlier hypotheses and makes it harder to revise. In the
+#    flat structure, prior suggestions appear only as the DESCRIPTION field
+#    in outcome messages — framed as "an action was taken", not "I decided
+#    this" — which is a weaker anchor and leaves more room for hypothesis
+#    revision.
 
 
 def get_conversation_start(system_description: SystemDescription) -> list[dict]:

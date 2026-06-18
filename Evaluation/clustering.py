@@ -338,9 +338,11 @@ def save_dendrogram(
     plt.close(fig)
 
 
-def _abbrev_intent(seq: str, n: int = 2) -> str:
-    """Abbreviate an intent sequence string to head+tail action_ids."""
-    parts = [tok for tok in seq.split(" → ")]
+def _abbrev_intent(seq: str, n: int = 2, max_tok: int = 22) -> str:
+    """Abbreviate an intent sequence to head+tail steps, each capped at max_tok chars."""
+    def _trunc(s: str) -> str:
+        return s if len(s) <= max_tok else s[:max_tok - 1] + "…"
+    parts = [_trunc(tok) for tok in seq.split(" → ")]
     if len(parts) <= 2 * n:
         return " → ".join(parts)
     return " → ".join(parts[:n]) + " → … → " + " → ".join(parts[-n:])
@@ -355,33 +357,53 @@ def save_intent_scatter(
     title: str = "",
 ) -> None:
     import matplotlib.patches as mpatches
+    import matplotlib.lines as mlines
+
+    # Colour-blind-safe palette (Okabe-Ito) + distinct marker shapes
+    _COLORS  = ["#E69F00","#56B4E9","#009E73","#F0E442","#0072B2",
+                "#D55E00","#CC79A7","#000000","#999999","#44AA99"]
+    _MARKERS = ["o","s","^","D","v","P","X","*","h","<"]
 
     cmap = plt.cm.tab10
     cluster_ids = sorted(set(l for l in labels if l >= 0))
 
     def _color(label: int):
         if label < 0:
-            return "#aaaaaa"
-        return cmap(label % 10)
+            return "#cccccc"
+        return _COLORS[label % len(_COLORS)]
+
+    def _marker(label: int):
+        if label < 0:
+            return "x"
+        return _MARKERS[label % len(_MARKERS)]
 
     fig, ax = plt.subplots(figsize=(10, 7))
     xs, ys = embeddings_2d[:, 0], embeddings_2d[:, 1]
 
     for i, (x, y, lbl) in enumerate(zip(xs, ys, labels)):
-        ax.scatter(x, y, c=[_color(lbl)], s=40, alpha=0.8, zorder=2)
+        is_unfilled = _marker(lbl) == "x"
+        ax.scatter(x, y, c=[_color(lbl)], marker=_marker(lbl),
+                   s=50, alpha=0.85, zorder=2,
+                   linewidths=0.5 if is_unfilled else 0.5,
+                   edgecolors="none" if not is_unfilled else _color(lbl))
         text = _abbrev_intent(intent_seqs[i])
         ax.annotate(text, (x, y), fontsize=5, alpha=0.7,
                     xytext=(3, 3), textcoords="offset points")
 
-    # Legend
-    patches = []
+    # Legend — use Line2D handles so marker shape shows alongside colour
+    handles = []
     for cid in cluster_ids:
         name = (cluster_label_names or {}).get(cid, f"Cluster {cid}")
-        patches.append(mpatches.Patch(color=cmap(cid % 10), label=f"[{cid}] {name}"))
+        if len(name) > 40:
+            name = name[:39] + "…"
+        handles.append(mlines.Line2D([], [], color=_color(cid), marker=_marker(cid),
+                                     linestyle="None", markersize=7,
+                                     label=f"[{cid}] {name}"))
     if any(l < 0 for l in labels):
-        patches.append(mpatches.Patch(color="#aaaaaa", label="noise"))
-    if patches:
-        ax.legend(handles=patches, fontsize=7, loc="best")
+        handles.append(mlines.Line2D([], [], color="#cccccc", marker="x",
+                                     linestyle="None", markersize=7, label="noise"))
+    if handles:
+        ax.legend(handles=handles, fontsize=7, loc="best")
 
     ax.set_title(title)
     ax.set_xlabel("PCA 1")
