@@ -782,6 +782,183 @@ def _raw_matrix(
     return matrix, row_labels, col_labels
 
 
+def generate_cluster_strategy_heatmaps(
+    specs: list[tuple[str, str]],
+    checkpoint_dir: Path,
+    images_dir: Path,
+) -> list[tuple[str, str]]:
+    """
+    For each run, for each scenario: compute
+      - cost_delta:    max(per-cluster median cost) − min(per-cluster median cost)
+      - success_delta: max(per-cluster success rate) − min(per-cluster success rate)
+    then aggregate these as mean over scenarios in each system × fault-type cell.
+
+    NaN when a scenario has ≤1 non-noise cluster (strategy doesn't vary) or <6 trajectories.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import math
+        import numpy as np
+    except ImportError:
+        return []
+
+    def _scenario_deltas(assistant: str, run_id: str):
+        """Returns {scenario_number: (cost_delta, success_delta)} for a run."""
+        run_dir = checkpoint_dir / assistant / run_id
+        result = {}
+        for ckpt_path in run_dir.glob("*/checkpoint.json"):
+            scen_num = int(ckpt_path.parent.name)
+            try:
+                ckpt = json.loads(ckpt_path.read_text(encoding="utf-8"))
+                labels = ckpt.get("cluster_assignments_intent", [])
+                traj_paths = ckpt.get("trajectory_paths", [])
+                if not labels or not traj_paths:
+                    continue
+                # labels covers only non-truncated trajectories (same order as traj_paths).
+                trajs = []
+                for p in traj_paths:
+                    try:
+                        t = json.loads(Path(p).read_text(encoding="utf-8"))
+                        if t.get("end") != "llm_truncation":
+                            trajs.append(t)
+                    except Exception:
+                        pass
+                if len(trajs) != len(labels):
+                    continue
+
+                cluster_ids = sorted(set(l for l in labels if l >= 0))
+                if len(cluster_ids) < 2:
+                    continue  # NaN — no strategy variation
+
+                costs_by_cluster = {cid: [] for cid in cluster_ids}
+                success_by_cluster = {cid: [] for cid in cluster_ids}
+                for traj, lbl in zip(trajs, labels):
+                    if lbl < 0:
+                        continue
+                    c = traj.get("total_cost", float("nan"))
+                    if not math.isnan(c):
+                        costs_by_cluster[lbl].append(c)
+                    success_by_cluster[lbl].append(1 if traj.get("end") == "success" else 0)
+
+                if any(len(v) < 2 for v in costs_by_cluster.values()):
+                    continue  # too few per cluster for stable median
+
+                medians = [float(np.median(costs_by_cluster[cid])) for cid in cluster_ids]
+                cost_delta = max(medians) - min(medians)
+
+                success_rates = [float(np.mean(success_by_cluster[cid]))
+                                 for cid in cluster_ids if success_by_cluster[cid]]
+                success_delta = max(success_rates) - min(success_rates)
+
+                result[scen_num] = (cost_delta, success_delta)
+            except Exception:
+                pass
+        return result
+
+    images_dir.mkdir(parents=True, exist_ok=True)
+    latex_blocks = []
+
+    systems = list(SYSTEM_RANGES.keys())
+    row_labels = [SYSTEM_LABELS[s] for s in systems]
+
+    for assistant, run_id in specs:
+        deltas = _scenario_deltas(assistant, run_id)
+        if not deltas:
+            continue
+
+        # Collect fault types from ALL scenarios in this run so all columns appear
+        # even when some cells are NaN (scenarios with ≤1 cluster).
+        all_scen_nums = [int(p.parent.name)
+                         for p in (checkpoint_dir / assistant / run_id).glob("*/checkpoint.json")]
+        fault_types_seen = sorted(set(
+            ft for n in all_scen_nums
+            for ft in scenario_meta(n).get("fault_tags", ["Simple"])
+        ))
+        if not fault_types_seen:
+            continue
+
+        # Build matrices: rows=systems (fixed order), cols=fault_types
+        for metric_idx, metric_label, fmt in [
+            (0, "Cost delta across clusters (median max−min, s)",  ".0f"),
+            (1, "Success-rate spread across clusters (max−min)",   ".0%"),
+        ]:
+            matrix = []
+            for sys in systems:
+                sys_nums = list(SYSTEM_RANGES[sys])
+                row = []
+                for ft in fault_types_seen:
+                    vals = [
+                        deltas[n][metric_idx]
+                        for n in sys_nums
+                        if n in deltas and ft in scenario_meta(n).get("fault_tags", [])
+                    ]
+                    row.append(float(np.mean(vals)) if vals else float("nan"))
+                matrix.append(row)
+
+            arr = np.array(matrix, dtype=float)
+            flat = [v for v in arr.flatten() if not math.isnan(v)]
+            if not flat:
+                continue
+
+            run_label = _run_label_from_ckpt(checkpoint_dir, assistant, run_id)
+            safe_run = run_label.lower().replace(" ", "_").replace("(","").replace(")","").replace("/","_")
+            metric_key = "cost" if metric_idx == 0 else "success"
+
+            fig, ax = plt.subplots(figsize=(max(4, len(fault_types_seen) * 0.9),
+                                            max(2.5, len(row_labels) * 0.6)))
+            vmin, vmax = min(flat), max(flat)
+            if vmax == vmin:
+                vmax = vmin + 1e-6
+            im = ax.imshow(arr, aspect="auto", vmin=vmin, vmax=vmax,
+                           cmap="YlOrRd" if metric_key == "cost" else "PuOr")
+            ax.set_xticks(range(len(fault_types_seen)))
+            ax.set_xticklabels(fault_types_seen, rotation=40, ha="right", fontsize=7)
+            ax.set_yticks(range(len(row_labels)))
+            ax.set_yticklabels(row_labels, fontsize=7)
+            ax.set_title(f"{metric_label}\n{run_label}", fontsize=8, pad=4)
+            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+            for r, row in enumerate(arr):
+                for c, val in enumerate(row):
+                    if not math.isnan(val):
+                        txt = format(val, fmt)
+                        ax.text(c, r, txt, ha="center", va="center",
+                                fontsize=6, color="black" if val < vmin + (vmax - vmin) * 0.6 else "white")
+
+            plt.tight_layout()
+            fname = f"heatmap_cluster_{metric_key}_delta_{safe_run}.pdf"
+            fig.savefig(images_dir / fname, bbox_inches="tight")
+            plt.close(fig)
+
+            slug = f"fig:heatmap:cluster:{metric_key}:{safe_run}"
+            latex = (
+                "\\begin{figure}[htbp]\n\\centering\n"
+                f"  \\includegraphics[width=0.65\\linewidth]{{Images/{fname}}}\n"
+                f"\\caption{{{metric_label} — {run_label}. "
+                "Higher = strategy choice matters more.}}\n"
+                f"\\label{{{slug}}}\n"
+                "\\end{figure}\n"
+            )
+            latex_blocks.append((latex, f"Cluster {metric_key} delta heatmap: {run_label}"))
+
+    return latex_blocks
+
+
+def _run_label_from_ckpt(checkpoint_dir: Path, assistant: str, run_id: str) -> str:
+    """Build a human-readable run label from config.json if present, else fallback."""
+    config_path = checkpoint_dir / assistant / run_id / "config.json"
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+        model = cfg.get("assistant_config", {}).get("model") or cfg.get("default_llm_model", "")
+        if model:
+            return f"{assistant} ({model})"
+    except Exception:
+        pass
+    return f"{assistant} ({run_id})"
+
+
 def generate_heatmaps(
     runs: list[tuple[str, dict[int, dict]]],
     checkpoint_dir: Path,
@@ -874,6 +1051,8 @@ def generate_heatmaps(
         safe_base = baseline_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
 
         for run_name, data in runs[1:]:
+            if run_name == baseline_name:
+                continue
             safe_run = run_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
             for metric_key, metric_label, is_pct in metrics:
                 base_matrix, row_labels, col_labels = _raw_matrix(baseline_data, fault_types, metric_key, use_std=False)
@@ -1746,6 +1925,17 @@ def main() -> None:
             heatmap_latex_parts.append(latex)
         all_latex.append("% === Heatmaps ===\n" + "\n".join(heatmap_latex_parts))
 
+    # --- Cluster strategy heatmaps ---
+    cluster_heatmap_blocks = generate_cluster_strategy_heatmaps(specs, ckpt, images_dir)
+    if cluster_heatmap_blocks:
+        print(f"\n% === Cluster strategy heatmaps (saved to {images_dir}/) ===")
+        cluster_heatmap_latex_parts = []
+        for latex, desc in cluster_heatmap_blocks:
+            print(f"% {desc}")
+            print(latex)
+            cluster_heatmap_latex_parts.append(latex)
+        all_latex.append("% === Cluster strategy heatmaps ===\n" + "\n".join(cluster_heatmap_latex_parts))
+
     # --- Scatter: cost vs. success ---
     scatter_latex, scatter_desc = generate_cost_vs_success_scatter(runs, images_dir)
     if scatter_latex:
@@ -1806,6 +1996,7 @@ def main() -> None:
                 delta_latex_parts.append(latex)
             all_latex.append("% === Delta radar charts ===\n" + "\n".join(delta_latex_parts))
 
+    if runs_qual:
         print("\n" + "=" * 60)
         print("QUALITATIVE PROSE SUMMARY")
         print("=" * 60)
