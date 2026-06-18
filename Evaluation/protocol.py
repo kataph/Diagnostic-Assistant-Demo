@@ -34,6 +34,7 @@ from Evaluation.clustering import (
     cluster_execution, cluster_intent, embed_intent, _hdbscan_on_dist,
     _normalized_levenshtein, execution_sequence, intent_sequence,
     label_clusters_llm, save_dendrogram, save_intent_scatter,
+    save_cluster_cost_violin, save_cluster_cost_histogram,
 )
 from Evaluation.metrics import (
     ari_inter as compute_ari_inter,
@@ -93,11 +94,11 @@ class ProtocolConfig:
     mock_llm_labels: bool = False
     mock_embeddings: bool = False
     embedding_model: str = "all-MiniLM-L6-v2"
-    labeling_model: str = "gpt-4.1"
+    labeling_model: str = "gpt-4.1-mini"
 
     # Qualitative analysis (Section 8)
     run_qualitative: bool = True
-    qualitative_model: str = "gpt-4.1"
+    qualitative_model: str = "gpt-4.1-mini"
 
     # Parallelism — defaults to CPU count; lower for RAM-constrained machines,
     # set to ~10 for real LLM runs to stay within OpenAI rate limits.
@@ -795,6 +796,34 @@ class AdaptiveEvaluationProtocol:
             )
         except Exception as exc:
             self._log(f"[Scenario {scenario_number}] Warning: intent scatter save failed: {exc}")
+
+        # Save cost-distribution-per-cluster plots (violin + histogram)
+        try:
+            traj_costs = [t.get("total_cost", float("nan")) for t in trajectories]
+            intent_labels = state.cluster_assignments_intent
+            if traj_costs and intent_labels:
+                save_cluster_cost_violin(
+                    costs=traj_costs,
+                    labels=intent_labels,
+                    cluster_label_names=cluster_labels,
+                    output_path=ckpt_path.parent / "cluster_cost_violin.png",
+                    title=(
+                        f"Scenario {scenario_number} | Cost per intent cluster "
+                        f"({len(trajectories)} trajectories)"
+                    ),
+                )
+                save_cluster_cost_histogram(
+                    costs=traj_costs,
+                    labels=intent_labels,
+                    cluster_label_names=cluster_labels,
+                    output_path=ckpt_path.parent / "cluster_cost_histogram.png",
+                    title=(
+                        f"Scenario {scenario_number} | Cost histogram per intent cluster "
+                        f"({len(trajectories)} trajectories)"
+                    ),
+                )
+        except Exception as exc:
+            self._log(f"[Scenario {scenario_number}] Warning: cluster cost plots failed: {exc}")
 
     # ------------------------------------------------------------------ #
     # Batch collection (subprocess)

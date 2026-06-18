@@ -21,7 +21,7 @@ _embedding_model_cache: dict[str, "SentenceTransformer"] = {}
 _embedding_model_lock = threading.Lock()
 
 # model used to label clusters
-LABELING_MODEL = "gpt-4.1"
+LABELING_MODEL = "gpt-4.1-mini"
 
 # ---------------------------------------------------------------------------
 # Sequence extraction from trajectory JSON dicts
@@ -408,5 +408,151 @@ def save_intent_scatter(
     ax.set_title(title)
     ax.set_xlabel("PCA 1")
     ax.set_ylabel("PCA 2")
+    fig.savefig(output_path, bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Cost distribution per cluster: violin + histogram
+# ---------------------------------------------------------------------------
+
+_CLUSTER_COLORS = [
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+    "#0072B2", "#D55E00", "#CC79A7", "#000000", "#999999", "#44AA99",
+]
+
+
+def save_cluster_cost_violin(
+    costs: list[float],
+    labels: list[int],
+    cluster_label_names: Optional[dict[int, str]],
+    output_path: Path,
+    title: str = "",
+) -> None:
+    """
+    Violin plot: one violin per cluster (noise excluded).
+    Individual trajectory costs overlaid as a strip of dots (jittered).
+    X = cluster label, Y = cost.
+    """
+    import matplotlib.lines as mlines
+
+    cluster_ids = sorted(set(l for l in labels if l >= 0))
+    if not cluster_ids:
+        return
+
+    data_by_cluster = {
+        cid: [c for c, l in zip(costs, labels) if l == cid]
+        for cid in cluster_ids
+    }
+
+    fig, ax = plt.subplots(figsize=(max(5, len(cluster_ids) * 1.4), 5))
+
+    positions = list(range(len(cluster_ids)))
+    violin_data = [data_by_cluster[cid] for cid in cluster_ids]
+
+    parts = ax.violinplot(violin_data, positions=positions,
+                          showmedians=True, showextrema=True, widths=0.7)
+
+    for i, (pc, cid) in enumerate(zip(parts["bodies"], cluster_ids)):
+        color = _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
+        pc.set_facecolor(color)
+        pc.set_alpha(0.55)
+        pc.set_edgecolor(color)
+
+    for key in ("cmedians", "cmins", "cmaxes", "cbars"):
+        if key in parts:
+            parts[key].set_color("#333333")
+            parts[key].set_linewidth(1.0)
+
+    rng = np.random.default_rng(0)
+    for i, (cid, pos) in enumerate(zip(cluster_ids, positions)):
+        vals = data_by_cluster[cid]
+        if not vals:
+            continue
+        jitter = rng.uniform(-0.12, 0.12, size=len(vals))
+        color = _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
+        ax.scatter(np.array(pos) + jitter, vals,
+                   color=color, s=18, alpha=0.7, zorder=3, linewidths=0)
+
+    tick_labels = [
+        (cluster_label_names or {}).get(cid, f"C{cid}") + f"\n(n={len(data_by_cluster[cid])})"
+        for cid in cluster_ids
+    ]
+    ax.set_xticks(positions)
+    ax.set_xticklabels(tick_labels, fontsize=7)
+    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_title(title or "Cost distribution per cluster", fontsize=9)
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+
+    noise_count = sum(1 for l in labels if l < 0)
+    if noise_count:
+        ax.text(0.99, 0.01, f"noise (excluded): {noise_count}",
+                transform=ax.transAxes, fontsize=7, ha="right", va="bottom",
+                color="#999999")
+
+    plt.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+
+def save_cluster_cost_histogram(
+    costs: list[float],
+    labels: list[int],
+    cluster_label_names: Optional[dict[int, str]],
+    output_path: Path,
+    title: str = "",
+    n_bins: int = 15,
+) -> None:
+    """
+    Grouped histogram: horizontal axis = cost, vertical axis = count.
+    One colour-coded bar group per bin, one bar per cluster.
+    Clusters with very few members fall back to a KDE overlay instead of bars.
+    """
+    cluster_ids = sorted(set(l for l in labels if l >= 0))
+    if not cluster_ids:
+        return
+
+    data_by_cluster = {
+        cid: [c for c, l in zip(costs, labels) if l == cid]
+        for cid in cluster_ids
+    }
+
+    all_vals = [c for c in costs if not np.isnan(c)]
+    if not all_vals:
+        return
+
+    vmin, vmax = min(all_vals), max(all_vals)
+    bin_edges = np.linspace(vmin, vmax, n_bins + 1)
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    n_clusters = len(cluster_ids)
+    bar_width = (bin_edges[1] - bin_edges[0]) / (n_clusters + 1)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    for i, cid in enumerate(cluster_ids):
+        vals = data_by_cluster[cid]
+        color = _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
+        name = (cluster_label_names or {}).get(cid, f"Cluster {cid}")
+        label = f"[{cid}] {name} (n={len(vals)})"
+
+        counts, _ = np.histogram(vals, bins=bin_edges)
+        offsets = bin_centers + (i - n_clusters / 2 + 0.5) * bar_width
+        ax.bar(offsets, counts, width=bar_width * 0.9,
+               color=color, alpha=0.75, label=label, zorder=2)
+
+    ax.set_xlabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_ylabel("Count", fontsize=9)
+    ax.set_title(title or "Cost histogram per cluster", fontsize=9)
+    ax.legend(fontsize=7, loc="best")
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+
+    noise_count = sum(1 for l in labels if l < 0)
+    if noise_count:
+        ax.text(0.99, 0.99, f"noise (excluded): {noise_count}",
+                transform=ax.transAxes, fontsize=7, ha="right", va="top",
+                color="#999999")
+
+    plt.tight_layout()
     fig.savefig(output_path, bbox_inches="tight", dpi=100)
     plt.close(fig)

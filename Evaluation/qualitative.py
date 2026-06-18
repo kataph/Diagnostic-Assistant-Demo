@@ -571,7 +571,7 @@ def run_qualitative_analysis(
     cluster_assignments_intent: list[int],
     cluster_probabilities,
     cluster_labels: dict[int, str],
-    model: str = "gpt-4.1",
+    model: str = "gpt-4.1-mini",
     output_dir: Optional[Path] = None,
 ) -> QualitativeReport:
     """

@@ -271,7 +271,7 @@ def main_args(
     out_file: Path,
     service: str,
     saboteur: str = "FixedScenario",
-    assistant_model: str = "gpt-4.1",
+    assistant_model: str = "gpt-4.1-mini",
     batch_size_of_same_scenario_runs: int = 1,
 ) -> None:
 
@@ -323,7 +323,7 @@ def main_args_parallel(
     out_file: Path,
     service: str,
     saboteur: str = "FixedScenario",
-    assistant_model: str = "gpt-4.1",
+    assistant_model: str = "gpt-4.1-mini",
     chat_dir: Path | None = None,
     trajectory_dir: Path | None = None,
     batch_size_of_same_scenario_runs: int = 1,
@@ -421,7 +421,7 @@ def main():
                         help="Maximum number of diagnostic rounds per run.")
     parser.add_argument("--assistant", type=str, required=True,
                         help="Diagnostic assistant type (e.g. 'LLM', 'KGO').")
-    parser.add_argument("--assistant_model", type=str, default="gpt-4.1",
+    parser.add_argument("--assistant_model", type=str, default="gpt-4.1-mini",
                         help="Model exploited by the assistant (default: 'gpt-4.1').")
     parser.add_argument("--service", type=str, required=True,
                         help="Service agent type (e.g. 'SpiceSim', 'Human', 'Mock').")

@@ -165,7 +165,7 @@ faultTreeGenerator = Agent(
      }. 
     Ensure that the fault tree is comprehensive, logically structured, and accurately reflects the potential failure modes of the system based on the provided documentation. Use your own knowledge and/or web searches about engineering systems to supplement the information from the documentation where necessary.
     In particular, ensure that there is a unique top event, and that all events appear at least once in a gate.""",
-    model="gpt-4.1",
+    model="gpt-4.1-mini",
     output_type=FaultTree,
 )
 
@@ -184,7 +184,7 @@ symptomGenerator = Agent(
   Note that the symptoms can be multiple and can affect multiple components of the system. Also the sysmptoms must be observable effects of the fault, i.e., things that can be measured or perceived when interacting with the system. Finally, ensure that the symptoms you select are plausible given the description of the system provided in input, and that there is a causal relationship between the fault and the symptoms you describe. And, most importantely, do not include the fault itself among the symptoms. 
   Please, organize your output as a list of entries, one brief text describing one symptom per entry. 
   """,
-    model="gpt-4.1",
+    model="gpt-4.1-mini",
     output_type=SymptomGeneratorOutput
 )
 

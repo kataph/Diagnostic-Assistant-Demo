@@ -181,8 +181,8 @@ def parse_configuration() -> Configuration:
         assistant_config["tokenizer_model"] = args.tokenizer_model
 
     # Resolve legacy Configuration fields from config dicts (for code that still reads them directly)
-    ns_model       = assistant_config.get("model", "gpt-4.1")
-    service_model  = service_config.get("model", "gpt-4.1")
+    ns_model       = assistant_config.get("model", "gpt-4.1-mini")
+    service_model  = service_config.get("model", "gpt-4.1-mini")
 
     return Configuration(
         SABOTEUR_TYPE=args.saboteur,

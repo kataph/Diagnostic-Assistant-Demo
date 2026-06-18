@@ -107,7 +107,7 @@ def _parse_args() -> argparse.Namespace:
 
     parser.add_argument("--embedding-model", type=str, default="all-MiniLM-L6-v2",
                         help="Sentence-transformers model for intent embeddings")
-    parser.add_argument("--labeling-model", type=str, default="gpt-4.1",
+    parser.add_argument("--labeling-model", type=str, default="gpt-4.1-mini",
                         help="LLM model used to label intent clusters (default: gpt-4.1)")
     parser.add_argument("--no-qualitative", action="store_true", default=False,
                         help="Skip qualitative analysis (Section 8) after convergence")
