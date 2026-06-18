@@ -782,7 +782,7 @@ async def get_components_behaving_anomalously_nominally_from_one_symptom(ontolog
             cache_path=cfg.get("cache_path", configuration.CACHE_PATH),
         )
 
-    _ns_model = configuration.ASSISTANT_CONFIG.get("model", configuration.DEFAULT_NS_MODEL)
+    _ns_model = _make_model(configuration.ASSISTANT_CONFIG.get("model", configuration.DEFAULT_NS_MODEL))
     anomalousNominalExtractor = Agent(
         name="anomalousNominalExtractor",
         instructions=prompt,

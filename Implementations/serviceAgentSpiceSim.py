@@ -175,9 +175,6 @@ class ServiceAgentSpiceSim(ServiceAgent):
         system: SystemDescription,
         root_cause_description: Optional[RootCauseDescription],
     ) -> list[Observation]:
-        # Reset per-scenario mutable state so the agent is safe to reuse.
-        self.annoyance_level = 0
-        self._repaired_comp_ids = set()
         """
         Observe the externally visible state of the (already-faulted) simulated
         system and return it as a single Observation.
@@ -185,6 +182,9 @@ class ServiceAgentSpiceSim(ServiceAgent):
         NOTE: the fault must already be applied to system.simulated_system before
         this is called.  SaboteurSpiceSim is responsible for that.
         """
+        # Reset per-scenario mutable state so the agent is safe to reuse.
+        self.annoyance_level = 0
+        self._repaired_comp_ids = set()
         if not system.simulated_system:
             raise ValueError("Got in input a system description without a simulation!")
         system.simulated_system.add_logger(self.logger)
@@ -314,6 +314,7 @@ class ServiceAgentSpiceSim(ServiceAgent):
             entry["subject"] for entry in entries
             if entry.get("action_id") == "verify_repair" and entry.get("subject")
         }
+        _all_subjects.discard("_no_component_match")
         candidate_ids: set[str] = _all_subjects - set(_removed)
         _missing_ids: set[str] = _all_subjects & set(_removed)  # removed from system
 
