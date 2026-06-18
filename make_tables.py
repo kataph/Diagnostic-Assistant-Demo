@@ -862,6 +862,7 @@ def generate_cluster_strategy_heatmaps(
 
     systems = list(SYSTEM_RANGES.keys())
     row_labels = [SYSTEM_LABELS[s] for s in systems]
+    all_matrices = {}
 
     for assistant, run_id in specs:
         deltas = _scenario_deltas(assistant, run_id)
@@ -906,27 +907,32 @@ def generate_cluster_strategy_heatmaps(
             safe_run = run_label.lower().replace(" ", "_").replace("(","").replace(")","").replace("/","_")
             metric_key = "cost" if metric_idx == 0 else "success"
 
+            # Store for pairwise diff plots later
+            all_matrices[(assistant, run_id, metric_idx)] = (arr, fault_types_seen, run_label, safe_run, metric_key, metric_label, fmt)
+
+            def _draw_heatmap(ax, arr, fault_types_seen, vmin, vmax, cmap, fmt, title):
+                im = ax.imshow(arr, aspect="auto", vmin=vmin, vmax=vmax, cmap=cmap)
+                ax.set_xticks(range(len(fault_types_seen)))
+                ax.set_xticklabels(fault_types_seen, rotation=40, ha="right", fontsize=7)
+                ax.set_yticks(range(len(row_labels)))
+                ax.set_yticklabels(row_labels, fontsize=7)
+                ax.set_title(title, fontsize=8, pad=4)
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                for r, row in enumerate(arr):
+                    for c, val in enumerate(row):
+                        if not math.isnan(val):
+                            txt = format(val, fmt)
+                            ax.text(c, r, txt, ha="center", va="center",
+                                    fontsize=6, color="black" if val < vmin + (vmax - vmin) * 0.6 else "white")
+                return im
+
             fig, ax = plt.subplots(figsize=(max(4, len(fault_types_seen) * 0.9),
                                             max(2.5, len(row_labels) * 0.6)))
             vmin, vmax = min(flat), max(flat)
-            if vmax == vmin:
-                vmax = vmin + 1e-6
-            im = ax.imshow(arr, aspect="auto", vmin=vmin, vmax=vmax,
-                           cmap="YlOrRd" if metric_key == "cost" else "PuOr")
-            ax.set_xticks(range(len(fault_types_seen)))
-            ax.set_xticklabels(fault_types_seen, rotation=40, ha="right", fontsize=7)
-            ax.set_yticks(range(len(row_labels)))
-            ax.set_yticklabels(row_labels, fontsize=7)
-            ax.set_title(f"{metric_label}\n{run_label}", fontsize=8, pad=4)
-            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-            for r, row in enumerate(arr):
-                for c, val in enumerate(row):
-                    if not math.isnan(val):
-                        txt = format(val, fmt)
-                        ax.text(c, r, txt, ha="center", va="center",
-                                fontsize=6, color="black" if val < vmin + (vmax - vmin) * 0.6 else "white")
-
+            if vmax == vmin: vmax = vmin + 1e-6
+            _draw_heatmap(ax, arr, fault_types_seen, vmin, vmax,
+                          "YlOrRd" if metric_key == "cost" else "PuOr",
+                          fmt, f"{metric_label}\n{run_label}")
             plt.tight_layout()
             fname = f"heatmap_cluster_{metric_key}_delta_{safe_run}.pdf"
             fig.savefig(images_dir / fname, bbox_inches="tight")
@@ -936,12 +942,71 @@ def generate_cluster_strategy_heatmaps(
             latex = (
                 "\\begin{figure}[htbp]\n\\centering\n"
                 f"  \\includegraphics[width=0.65\\linewidth]{{Images/{fname}}}\n"
-                f"\\caption{{{metric_label} — {run_label}. "
-                "Higher = strategy choice matters more.}}\n"
-                f"\\label{{{slug}}}\n"
-                "\\end{figure}\n"
+                f"\\caption{{{metric_label} — {run_label}. Higher = strategy choice matters more.}}\n"
+                f"\\label{{{slug}}}\n\\end{{figure}}\n"
             )
             latex_blocks.append((latex, f"Cluster {metric_key} delta heatmap: {run_label}"))
+
+    # Pairwise diff: for each pair of runs, emit (run_B - run_A) per metric
+    if len(specs) >= 2:
+        base_assistant, base_run_id = specs[0]
+        for cmp_assistant, cmp_run_id in specs[1:]:
+            base_label = _run_label_from_ckpt(checkpoint_dir, base_assistant, base_run_id)
+            cmp_label  = _run_label_from_ckpt(checkpoint_dir, cmp_assistant,  cmp_run_id)
+            safe_cmp  = cmp_label.lower().replace(" ","_").replace("(","").replace(")","").replace("/","_")
+            safe_base = base_label.lower().replace(" ","_").replace("(","").replace(")","").replace("/","_")
+
+            for metric_idx in range(2):
+                key_base = (base_assistant, base_run_id, metric_idx)
+                key_cmp  = (cmp_assistant,  cmp_run_id,  metric_idx)
+                if key_base not in all_matrices or key_cmp not in all_matrices:
+                    continue
+                arr_base, ft_base, _, _, metric_key, metric_label, fmt = all_matrices[key_base]
+                arr_cmp,  ft_cmp,  _, _, _,           _,            _   = all_matrices[key_cmp]
+                # Use intersection of fault types in same order
+                ft_common = [ft for ft in ft_base if ft in ft_cmp]
+                if not ft_common:
+                    continue
+                base_idx = [ft_base.index(ft) for ft in ft_common]
+                cmp_idx  = [ft_cmp.index(ft)  for ft in ft_common]
+                diff = arr_cmp[:, cmp_idx] - arr_base[:, base_idx]
+                flat = [v for v in diff.flatten() if not math.isnan(v)]
+                if not flat:
+                    continue
+                abs_max = max(abs(min(flat)), abs(max(flat)), 1e-6)
+
+                fig, ax = plt.subplots(figsize=(max(4, len(ft_common) * 0.9),
+                                                max(2.5, len(row_labels) * 0.6)))
+                im = ax.imshow(diff, aspect="auto", vmin=-abs_max, vmax=abs_max, cmap="RdYlGn_r" if metric_key == "cost" else "RdYlGn")
+                ax.set_xticks(range(len(ft_common)))
+                ax.set_xticklabels(ft_common, rotation=40, ha="right", fontsize=7)
+                ax.set_yticks(range(len(row_labels)))
+                ax.set_yticklabels(row_labels, fontsize=7)
+                ax.set_title(f"Δ {metric_label}\n{cmp_label} − {base_label}", fontsize=8, pad=4)
+                cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+                cbar.set_label(
+                    "red = cmp has larger cost spread" if metric_key == "cost"
+                    else "red = cmp has larger success-rate spread",
+                    fontsize=6,
+                )
+                for r, row in enumerate(diff):
+                    for c, val in enumerate(row):
+                        if not math.isnan(val):
+                            ax.text(c, r, format(val, fmt), ha="center", va="center", fontsize=6, color="black")
+                plt.tight_layout()
+                fname = f"heatmap_cluster_{metric_key}_delta_diff_{safe_cmp}_vs_{safe_base}.pdf"
+                fig.savefig(images_dir / fname, bbox_inches="tight")
+                plt.close(fig)
+
+                slug = f"fig:heatmap:cluster:{metric_key}:diff:{safe_cmp}_vs_{safe_base}"
+                latex = (
+                    "\\begin{figure}[htbp]\n\\centering\n"
+                    f"  \\includegraphics[width=0.65\\linewidth]{{Images/{fname}}}\n"
+                    f"\\caption{{Δ {metric_label}: {cmp_label} minus {base_label}. "
+                    "Green = comparison model has higher cluster spread.}}\n"
+                    f"\\label{{{slug}}}\n\\end{{figure}}\n"
+                )
+                latex_blocks.append((latex, f"Cluster {metric_key} delta DIFF: {cmp_label} vs {base_label}"))
 
     return latex_blocks
 
