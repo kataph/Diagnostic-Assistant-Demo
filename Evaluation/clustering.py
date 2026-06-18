@@ -613,17 +613,29 @@ def save_cluster_cost_boxplot(
 
 def save_aggregate_cost_plots(
     per_scenario_data: list[dict],
-    output_dir: Path,
-    title_prefix: str = "",
+    images_dir: Path,
+    run_tag: str = "",
 ) -> None:
     """
-    Aggregate violin + histogram + boxplot across all scenarios in a run.
+    Aggregate violin + boxplot + histogram across all scenarios in a run.
+
+    Plots are written to ``images_dir`` (typically Images/) with names like
+    ``aggregate_cost_violin_<run_tag>.png``.  One subplot per system, stacked
+    vertically — avoids a 135-column squished single panel.
 
     per_scenario_data is a list of dicts, one per scenario, each with:
-      - "costs":  list[float]  — total_cost per trajectory
-      - "labels": list[int]    — intent cluster assignment per trajectory (unused for aggregate)
-      - "scenario": int        — scenario number
+      - "costs":  list[float]
+      - "labels": list[int]    — intent cluster assignments (noise=-1 excluded)
+      - "scenario": int
     """
+    SYSTEMS = [
+        ("3-Cubes",      range(1,   26)),
+        ("10-Cubes",     range(26,  51)),
+        ("Asym. Chains", range(51,  76)),
+        ("Ambient L.S.", range(76,  106)),
+        ("Current S.",   range(106, 136)),
+    ]
+
     all_costs: list[float] = []
     all_scenario_ids: list[int] = []
 
@@ -639,65 +651,90 @@ def save_aggregate_cost_plots(
     if not all_costs:
         return
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    scenarios = sorted(set(all_scenario_ids))
-    data_by_scen = {s: [c for c, sid in zip(all_costs, all_scenario_ids) if sid == s] for s in scenarios}
-    positions = list(range(len(scenarios)))
-    violin_data = [data_by_scen[s] for s in scenarios]
+    images_dir.mkdir(parents=True, exist_ok=True)
+    data_by_scen = {}
+    for c, s in zip(all_costs, all_scenario_ids):
+        data_by_scen.setdefault(s, []).append(c)
 
-    # Violin per scenario
-    fig, ax = plt.subplots(figsize=(max(6, len(scenarios) * 0.6), 5))
-    parts = ax.violinplot(violin_data, positions=positions, showmedians=True, widths=0.7)
-    for pc in parts["bodies"]:
-        pc.set_facecolor("#56B4E9")
-        pc.set_alpha(0.45)
-    for key in ("cmedians", "cmins", "cmaxes", "cbars"):
-        if key in parts:
-            parts[key].set_color("#333333")
-    rng = np.random.default_rng(0)
-    for pos, s in zip(positions, scenarios):
-        vals = data_by_scen[s]
-        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
-        ax.scatter(np.array(pos) + jitter, vals, s=8, alpha=0.5, color="#0072B2", zorder=3, linewidths=0)
-    ax.set_xticks(positions)
-    ax.set_xticklabels([str(s) for s in scenarios], fontsize=6, rotation=90)
-    ax.set_xlabel("Scenario", fontsize=9)
-    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
-    ax.set_title(f"{title_prefix}Cost distribution across scenarios", fontsize=9)
-    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
-    plt.tight_layout()
-    fig.savefig(output_dir / "aggregate_cost_violin.png", bbox_inches="tight", dpi=100)
-    plt.close(fig)
+    tag = f"_{run_tag}" if run_tag else ""
+    active_systems = [(name, rng) for name, rng in SYSTEMS
+                      if any(s in data_by_scen for s in rng)]
+    n_sys = len(active_systems)
+    if not n_sys:
+        return
 
-    # Boxplot per scenario
-    fig, ax = plt.subplots(figsize=(max(6, len(scenarios) * 0.6), 5))
-    bp = ax.boxplot(violin_data, positions=positions, patch_artist=True, widths=0.5,
-                    showfliers=True,
-                    medianprops=dict(color="#333333", linewidth=1.5),
-                    flierprops=dict(marker="o", markersize=3, alpha=0.4))
-    for patch in bp["boxes"]:
-        patch.set_facecolor("#56B4E9")
-        patch.set_alpha(0.5)
-    ax.set_xticks(positions)
-    ax.set_xticklabels([str(s) for s in scenarios], fontsize=6, rotation=90)
-    ax.set_xlabel("Scenario", fontsize=9)
-    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
-    ax.set_title(f"{title_prefix}Cost boxplot across scenarios", fontsize=9)
-    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
-    plt.tight_layout()
-    fig.savefig(output_dir / "aggregate_cost_boxplot.png", bbox_inches="tight", dpi=100)
-    plt.close(fig)
+    rng_jitter = np.random.default_rng(0)
 
-    # Pooled histogram
-    fig, ax = plt.subplots(figsize=(8, 4))
+    def _make_fig():
+        fig, axes = plt.subplots(n_sys, 1, figsize=(14, 3.5 * n_sys), squeeze=False)
+        return fig, [axes[i][0] for i in range(n_sys)]
+
+    def _finish(fig, fname):
+        fig.tight_layout()
+        fig.savefig(images_dir / fname, bbox_inches="tight", dpi=120)
+        plt.close(fig)
+
+    # --- Violin ---
+    fig, axes = _make_fig()
+    if run_tag:
+        fig.suptitle(f"{run_tag} — cost distribution per scenario", fontsize=10)
+    for ax, (sys_name, scen_range) in zip(axes, active_systems):
+        scenarios = [s for s in scen_range if s in data_by_scen]
+        if not scenarios:
+            ax.set_visible(False); continue
+        data = [data_by_scen[s] for s in scenarios]
+        pos = list(range(len(scenarios)))
+        parts = ax.violinplot(data, positions=pos, showmedians=True, widths=0.7)
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#56B4E9"); pc.set_alpha(0.45)
+        for key in ("cmedians", "cmins", "cmaxes", "cbars"):
+            if key in parts:
+                parts[key].set_color("#333333")
+        for p, s in zip(pos, scenarios):
+            jit = rng_jitter.uniform(-0.18, 0.18, size=len(data_by_scen[s]))
+            ax.scatter(np.array(p) + jit, data_by_scen[s], s=8, alpha=0.5,
+                       color="#0072B2", zorder=3, linewidths=0)
+        ax.set_xticks(pos)
+        ax.set_xticklabels([str(s) for s in scenarios], fontsize=7, rotation=90)
+        ax.set_ylabel("Cost (s)", fontsize=8)
+        ax.set_title(sys_name, fontsize=9, loc="left")
+        ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+    _finish(fig, f"aggregate_cost_violin{tag}.png")
+
+    # --- Boxplot ---
+    fig, axes = _make_fig()
+    if run_tag:
+        fig.suptitle(f"{run_tag} — cost boxplot per scenario", fontsize=10)
+    for ax, (sys_name, scen_range) in zip(axes, active_systems):
+        scenarios = [s for s in scen_range if s in data_by_scen]
+        if not scenarios:
+            ax.set_visible(False); continue
+        data = [data_by_scen[s] for s in scenarios]
+        pos = list(range(len(scenarios)))
+        bp = ax.boxplot(data, positions=pos, patch_artist=True, widths=0.5,
+                        showfliers=True,
+                        medianprops=dict(color="#333333", linewidth=1.5),
+                        flierprops=dict(marker="o", markersize=3, alpha=0.4))
+        for patch in bp["boxes"]:
+            patch.set_facecolor("#56B4E9"); patch.set_alpha(0.5)
+        ax.set_xticks(pos)
+        ax.set_xticklabels([str(s) for s in scenarios], fontsize=7, rotation=90)
+        ax.set_ylabel("Cost (s)", fontsize=8)
+        ax.set_title(sys_name, fontsize=9, loc="left")
+        ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+    _finish(fig, f"aggregate_cost_boxplot{tag}.png")
+
+    # --- Pooled histogram ---
+    fig, ax = plt.subplots(figsize=(9, 4))
     ax.hist(all_costs, bins=30, color="#56B4E9", alpha=0.75, edgecolor="white")
     ax.set_xlabel("Total cost (technician-seconds)", fontsize=9)
     ax.set_ylabel("Count", fontsize=9)
     ax.set_title(
-        f"{title_prefix}Pooled cost histogram ({len(all_costs)} traj., {len(scenarios)} scenarios)",
+        f"{run_tag + ' — ' if run_tag else ''}Pooled cost "
+        f"({len(all_costs)} traj., {len(data_by_scen)} scenarios)",
         fontsize=9,
     )
     ax.grid(axis="y", linewidth=0.4, alpha=0.5)
     plt.tight_layout()
-    fig.savefig(output_dir / "aggregate_cost_histogram.png", bbox_inches="tight", dpi=100)
+    fig.savefig(images_dir / f"aggregate_cost_histogram{tag}.png", bbox_inches="tight", dpi=120)
     plt.close(fig)

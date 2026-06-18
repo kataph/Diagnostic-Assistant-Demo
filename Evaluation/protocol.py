@@ -704,10 +704,10 @@ class AdaptiveEvaluationProtocol:
         if not per_scenario_data:
             return
         try:
-            agg_dir = run_dir / "aggregate_plots"
-            title_prefix = f"{self.config.assistant_type} | "
-            save_aggregate_cost_plots(per_scenario_data, agg_dir, title_prefix=title_prefix)
-            self._log(f"[Aggregate plots] Saved to {agg_dir}")
+            images_dir = Path("Images")
+            run_tag = f"{self.config.assistant_type}_{self.config.protocol_run_id}"
+            save_aggregate_cost_plots(per_scenario_data, images_dir, run_tag=run_tag)
+            self._log(f"[Aggregate plots] Saved to {images_dir} (tag: {run_tag})")
         except Exception as exc:
             self._log(f"[Aggregate plots] Failed: {exc}")
 
