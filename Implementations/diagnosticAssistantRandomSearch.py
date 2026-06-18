@@ -35,8 +35,9 @@ class DiagnosticAssistantRandomSearch(DiagnosticAssistant):
         self._remaining_components: list[str] = []
 
     async def setup(self, observations: list[Observation]) -> None:
-        if self.description.simulated_system is not None:
-            components = list(self.description.simulated_system.all_components().keys())
+        sys_desc = self.state.general_system_description
+        if sys_desc is not None and sys_desc.simulated_system is not None:
+            components = list(sys_desc.simulated_system.all_components().keys())
         else:
             # Fallback: no system available — nothing to hypothesise
             components = []

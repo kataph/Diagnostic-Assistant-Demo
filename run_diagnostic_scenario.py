@@ -118,6 +118,32 @@ def parse_configuration() -> Configuration:
 
     args = parser.parse_args()
 
+    # Auto-derive system paths and log structure from --forced-scenario
+    if args.forced_scenario:
+        from run_many_scenarios import scenario_paths
+        _p = scenario_paths(args.forced_scenario)
+        if not args.text_input_file:
+            args.text_input_file = _p["text_file"]
+        if args.kg is None:
+            args.kg = _p["kg"]
+        if args.ontology is None:
+            args.ontology = _p["ontology"]
+        if args.diagram is None:
+            args.diagram = _p["diagram"]
+        if args.retrieval_folder is None:
+            args.retrieval_folder = _p["retrieval_folder"]
+        if args.system == "3CubesSystem":  # default — only override if still default
+            args.system = _p["system_cls"]
+        # Mirror the folder structure used by the evaluation protocol
+        _assistant = args.assistant
+        _sc = args.forced_scenario
+        if args.log_path == "Logs/DebuggingLogs":
+            args.log_path = f"Logs/DebuggingLogs/{_assistant}/{_sc}"
+        if args.chat_path == "Logs/Chats":
+            args.chat_path = f"Logs/Chats/{_assistant}/{_sc}"
+        if args.trajectory_path == "Logs/Trajectories":
+            args.trajectory_path = f"Logs/Trajectories/{_assistant}/{_sc}"
+
     import json
 
     def _parse_json_config(s: str, flag: str) -> dict:

@@ -19,14 +19,35 @@ from Utilities.formatting import to_PascalCase
 _out_file_lock = threading.Lock()
 
 
+def scenario_paths(scenario_number: int) -> dict:
+    """Return the standard file paths for a given scenario number.
+
+    Keys: system_name, system_cls, text_file, kg, ontology, diagram, retrieval_folder
+    All path values are relative strings (as used by run_diagnostic_scenario).
+    """
+    scenario = next((s for s in SCENARIOS if s.number == scenario_number), None)
+    if scenario is None:
+        raise ValueError(f"Unknown scenario number: {scenario_number}")
+    sys = scenario.system_name  # e.g. "ambient_light_sensor"
+    return {
+        "system_name":       sys,
+        "system_cls":        f"{to_PascalCase(sys)}System",
+        "text_file":         f"Knowledge_sources/Unstructured_knowledge_sources/{sys}/{sys}_description.txt",
+        "kg":                f"Knowledge_sources/Structured_knowledge_sources/{sys}/zorro-ontology-{sys.replace('_', '-')}-abox.ttl",
+        "ontology":          "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl",
+        "diagram":           f"Knowledge_sources/Unstructured_knowledge_sources/{sys}/{sys}_schematics.png",
+        "retrieval_folder":  f"Knowledge_sources/Unstructured_knowledge_sources/{sys}",
+    }
+
+
 def run_scenario_multiple_times(
     n_runs: int,
     base_dir: Path,
     forced_scenario: int,
     assistant: str,
     rounds: int,
-    system: str,
-    service: str,
+    system: str | None = None,
+    service: str = "SpiceSim",
     saboteur: str = "FixedScenario",
     assistant_config: dict | None = None,
     service_config: dict | None = None,
@@ -45,42 +66,27 @@ def run_scenario_multiple_times(
     import json as _json
     python_executable = sys.executable
 
+    paths = scenario_paths(forced_scenario)
+    if system is not None and system != paths["system_name"]:
+        raise ValueError(
+            f"Explicit system={system!r} does not match scenario {forced_scenario} "
+            f"system {paths['system_name']!r}"
+        )
+
     cmd = [
         python_executable,
         "-m",
         "run_diagnostic_scenario",
-        "--text-input-file",
-        f"Knowledge_sources/Unstructured_knowledge_sources/{system}/{system}_description.txt",
-        "--diagram",
-        f"Knowledge_sources/Unstructured_knowledge_sources/{system}/{system}_schematics.png",
-        "--assistant-config",
-        _json.dumps(assistant_config or {}),
-        "--service-config",
-        _json.dumps(service_config or {}),
-        "--saboteur-config",
-        _json.dumps(saboteur_config or {}),
-        "--forced-scenario",
-        str(forced_scenario),
-        "--log-level",
-        "10",
-        "--rounds",
-        str(rounds),
-        "--kg",
-        f"Knowledge_sources/Structured_knowledge_sources/{system}/zorro-ontology-{system.replace('_', '-')}-abox.ttl",
-        "--system",
-        f"{to_PascalCase(system)}System",
-        "--ontology",
-        "Knowledge_sources/Structured_knowledge_sources/zorro-ontology-tbox.ttl",
-        "--retrieval-folder",
-        f"Knowledge_sources/Unstructured_knowledge_sources/{system}",
-        "--saboteur",
-        saboteur,
-        "--service",
-        service,
-        "--assistant",
-        assistant,
-        "--interface",
-        "cli",
+        "--forced-scenario", str(forced_scenario),
+        "--assistant-config", _json.dumps(assistant_config or {}),
+        "--service-config",   _json.dumps(service_config or {}),
+        "--saboteur-config",  _json.dumps(saboteur_config or {}),
+        "--log-level", "10",
+        "--rounds",    str(rounds),
+        "--saboteur",  saboteur,
+        "--service",   service,
+        "--assistant", assistant,
+        "--interface", "cli",
     ]
     if log_path is not None:
         cmd += ["--log-path", log_path]

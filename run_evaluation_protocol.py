@@ -86,6 +86,9 @@ def _parse_args() -> argparse.Namespace:
                         help="Root directory where trajectory JSONs are written")
     parser.add_argument("--resume", type=str, default=None,
                         help="Resume a previous run by protocol_run_id (e.g. 20260604T123456)")
+    parser.add_argument("--extend", type=str, default=None,
+                        help="Like --resume but clears the stopped flag, allowing hard-capped "
+                             "scenarios to collect additional batches (e.g. 20260604T123456)")
 
     # Interaction
     parser.add_argument("--interactive", action="store_true", default=False,
@@ -153,7 +156,7 @@ def main() -> None:
     saboteur_config  = _parse_agent_config(args.saboteur_config,  "--saboteur-config")
 
     from datetime import datetime
-    run_id = args.resume if args.resume else datetime.now().strftime("%Y%m%dT%H%M%S")
+    run_id = (args.resume or args.extend) if (args.resume or args.extend) else datetime.now().strftime("%Y%m%dT%H%M%S")
 
     config = ProtocolConfig(
         batch_size=args.batch_size,
@@ -181,6 +184,7 @@ def main() -> None:
         labeling_model=args.labeling_model,
         max_concurrent_subprocesses=args.max_concurrent,
         allow_constant_batches=args.allow_constant_batches,
+        extend=args.extend is not None,
         run_qualitative=not args.no_qualitative,
         qualitative_model=args.qualitative_model or args.labeling_model,
     )

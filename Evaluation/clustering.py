@@ -382,10 +382,10 @@ def save_intent_scatter(
 
     for i, (x, y, lbl) in enumerate(zip(xs, ys, labels)):
         is_unfilled = _marker(lbl) == "x"
-        ax.scatter(x, y, c=[_color(lbl)], marker=_marker(lbl),
-                   s=50, alpha=0.85, zorder=2,
-                   linewidths=0.5 if is_unfilled else 0.5,
-                   edgecolors="none" if not is_unfilled else _color(lbl))
+        scatter_kw = dict(c=[_color(lbl)], marker=_marker(lbl), s=50, alpha=0.85, zorder=2, linewidths=0.5)
+        if not is_unfilled:
+            scatter_kw["edgecolors"] = "white"
+        ax.scatter(x, y, **scatter_kw)
         text = _abbrev_intent(intent_seqs[i])
         ax.annotate(text, (x, y), fontsize=5, alpha=0.7,
                     xytext=(3, 3), textcoords="offset points")

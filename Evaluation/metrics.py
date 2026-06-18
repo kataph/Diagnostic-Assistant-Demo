@@ -143,6 +143,7 @@ def compute_numerical_metrics(
 
     Returns a dict suitable for embedding in the checkpoint batch_history entry.
     """
+    trajectories = [t for t in trajectories if t.get("end") != "llm_truncation"]
     if not trajectories:
         return {}
 
