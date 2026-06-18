@@ -3,9 +3,42 @@ from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from configuration import Configuration
 from environment_classes import AssistantState, DiagnosticAction, DiagnosticAssistant, DiagnosticFaultHypothesis, HypothesisVerificationResult, Observation, SystemDescription, diagnosticActionTypes
-from Utilities.agents_boilerplate import get_conversation_start, get_updated_conversation
+from Utilities.agents_boilerplate import (
+    append_assistant_turn,
+    get_conversation_start,
+    get_system_description_instructions,
+    get_updated_conversation,
+)
 from Utilities.formatting import format_conversation_history, format_list
 from Utilities.caching import possibly_cached_runner_run
+import os as _os
+
+
+def _make_model(model_name: str):
+    """Return a model identifier suitable for the Agents SDK Agent constructor.
+
+    When OPENAI_BASE_URL is unset we are talking directly to OpenAI, which
+    supports the Responses API — return the model name as a string so the SDK
+    uses its full native feature set (structured outputs, file uploads, etc.).
+
+    When OPENAI_BASE_URL is set we are behind a proxy (OpenRouter, Ollama, …)
+    that typically only supports /v1/chat/completions.  In that case we
+    construct an explicit OpenAIChatCompletionsModel so the SDK never attempts
+    the Responses API endpoint.
+    """
+    base_url = _os.environ.get("OPENAI_BASE_URL")
+    if not base_url:
+        return model_name
+    # Strip the "openai/" routing prefix — it's an Agents SDK convention for
+    # native OpenAI, meaningless (or invalid) on third-party proxies.
+    proxy_model_name = model_name.removeprefix("openai/")
+    from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=_os.environ.get("OPENAI_API_KEY", ""),
+    )
+    return OpenAIChatCompletionsModel(model=proxy_model_name, openai_client=client)
 
 
 class DiagnosticSuggestion(BaseModel):
@@ -35,15 +68,22 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
         if configuration.ASSISTANT_CONFIG.get("no_vision"):
             description = description.model_copy(update={"file_id": None, "image_b64": None})
         super().__init__(description, configuration)
+
+        # optimized_history=True (default): system description in Agent instructions (cacheable);
+        # assistant turns appended after each suggestion. Set {"optimized_history": false} to revert
+        # to legacy behaviour (system desc as first user message, no assistant turns).
+        self._optimized_history: bool = configuration.ASSISTANT_CONFIG.get("optimized_history", True)
+
         self.state = AssistantStateLLM(
             general_system_description=description,
-            conversation_history=get_conversation_start(
-                self.state.general_system_description),
+            conversation_history=(
+                [] if self._optimized_history
+                else get_conversation_start(self.state.general_system_description)
+            ),
         )
-        self.constrainedoutputdiagnoser_v3 = Agent(
-            name="ConstrainedOutputDiagnoser",
-            instructions=(
-                "You are an expert reliability engineer. You will receive a description of an "
+
+        _task_instructions = (
+            "You are an expert reliability engineer. You will receive a description of an "
                 "engineered system that is suffering from some fault, and possibly a history of "
                 "diagnostic actions executed on the system and their results.\n\n"
                 "YOUR GOAL: restore the system main functionality by identifying and fixing "
@@ -101,8 +141,19 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
                 "list. ALWAYS provide one or more components in suspected_components (even though "
                 "it may happen they do not suffer from an internal fault, but from some configuration "
                 "issue)."
-            ),
-            model=self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.DEFAULT_LLM_MODEL),
+        )
+
+        if self._optimized_history:
+            _instructions = get_system_description_instructions(
+                self.state.general_system_description
+            ) + [{"type": "input_text", "text": "\n\n" + _task_instructions}]
+        else:
+            _instructions = _task_instructions
+
+        self.constrainedoutputdiagnoser_v3 = Agent(
+            name="ConstrainedOutputDiagnoser",
+            instructions=_instructions,
+            model=_make_model(self.configuration.ASSISTANT_CONFIG.get("model", self.configuration.DEFAULT_LLM_MODEL)),
             output_type=DiagnosticSuggestion,
         )
 
@@ -121,14 +172,34 @@ class DiagnosticAssistantLLM(DiagnosticAssistant):
             self.state.conversation_history, f"Someone executed a (additional) diagnostic action on the system. The action (type, target_component, description, outcome) was: \nTYPE: {last_outcome.action.type},\nTARGET: {last_outcome.action.target},\nDESCRIPTION: {last_outcome.action.description},\nRESULT: {last_outcome.outcome}\n")
 
     async def suggest_action(self) -> DiagnosticAction | DiagnosticFaultHypothesis:
-        raw: DiagnosticSuggestion = await possibly_cached_runner_run(
-            self.constrainedoutputdiagnoser_v3,
-            input=self.state.conversation_history,
-            cached=self.configuration.USE_CACHE,
-        )
+        from environment_classes import LLMTruncationError
+        try:
+            raw: DiagnosticSuggestion = await possibly_cached_runner_run(
+                self.constrainedoutputdiagnoser_v3,
+                input=self.state.conversation_history,
+                cached=self.configuration.USE_CACHE,
+            )
+        except Exception as exc:
+            import json as _json
+            # Walk the cause chain — the JSONDecodeError may be wrapped by httpx/openai/agents
+            cause = exc
+            while cause is not None:
+                if isinstance(cause, _json.JSONDecodeError):
+                    self.logger.error(f"LLM returned truncated/invalid JSON: {exc}")
+                    raise LLMTruncationError(str(exc)) from exc
+                cause = getattr(cause, "__cause__", None) or getattr(cause, "__context__", None)
+            msg = str(exc)
+            if "json_invalid" in msg or "EOF while parsing" in msg or "Invalid JSON" in msg or "Expecting value" in msg:
+                self.logger.error(f"LLM returned truncated/invalid JSON: {exc}")
+                raise LLMTruncationError(msg) from exc
+            raise
         self.logger.debug(
             f"INPUT [tail only with new content. Full content is concatenation of all previous log entries]: \n{format_conversation_history([self.state.conversation_history[-1]])}\n")
         self.logger.info(f"OUTPUT: {str(raw)}")
+        if self._optimized_history:
+            self.state.conversation_history = append_assistant_turn(
+                self.state.conversation_history, str(raw)
+            )
         if raw.suggestion_type == "action" and raw.action_target is not None:
             return DiagnosticAction(
                 type=raw.action_type,
