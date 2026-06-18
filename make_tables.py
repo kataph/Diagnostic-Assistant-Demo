@@ -14,11 +14,9 @@ Output (printed to stdout; LaTeX copied to clipboard if pyperclip is installed)
   3. System-level aggregate       — mean ± std per system
   4. Fault-type aggregate         — mean ± std per fault category
   5. Metric breakdown matrices    — one matrix per metric: systems × fault types
-  6. Convergence report           — convergence status per scenario
-  7. Qualitative aggregate        — rubric rating distributions + gold match levels
+  6. Qualitative aggregate        — rubric rating distributions + gold match levels
                                     broken down by system and fault type
-  8. Heatmaps                     — PNG heatmaps for matrix tables, saved to Images/
-  9. Text summary
+  7. Text summary
 """
 from __future__ import annotations
 
@@ -54,7 +52,7 @@ SYSTEM_LABELS = {
 
 FAULT_TYPE_ORDER = [
     "Simple", "Double", "Intermittent", "Misleading",
-    "Coupled", "Limited Observability", "Unforeseen Interaction", "Triple",
+    "Coupled", "Limited Observability", "Unforeseen Interaction", "Multiple", "Triple",
 ]
 
 RUBRIC_DIMS = [
@@ -149,31 +147,6 @@ def load_checkpoints(run_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Loading — config.json (to extract model name for assistant label)
-# ---------------------------------------------------------------------------
-
-def load_run_config(checkpoint_dir: Path, assistant: str, run_id: str) -> dict:
-    p = checkpoint_dir / assistant / run_id / "config.json"
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
-
-
-def assistant_label(assistant: str, run_id: str, checkpoint_dir: Path) -> str:
-    """Return a label like 'LLM (gpt-4.1-mini)' by reading config.json."""
-    cfg = load_run_config(checkpoint_dir, assistant, run_id)
-    model = cfg.get("assistant_config", {}).get("model", "")
-    if model:
-        # Strip provider prefix (openai/, google/, etc.)
-        short = model.split("/")[-1]
-        return f"{assistant} ({short})"
-    return assistant
-
-
-# ---------------------------------------------------------------------------
 # Loading — final_report.txt
 # ---------------------------------------------------------------------------
 
@@ -261,18 +234,18 @@ def load_qualitative(checkpoint_dir: Path, assistant: str, run_id: str) -> dict[
 
 def _fmt_ci(m: dict | None, pct: bool = False) -> str:
     if not m:
-        return "--"
+        return "---"
     pt, lo, hi = m.get("point"), m.get("ci_lo"), m.get("ci_hi")
     if pt is None:
-        return "--"
+        return "---"
     if pct:
         return f"{pt:.1%} [{lo:.1%}, {hi:.1%}]"
     return f"{pt:.2f} [{lo:.2f}, {hi:.2f}]"
 
 
 def _fmt_ari(ari: float | None, floor: float | None) -> str:
-    ari_s   = f"{ari:.3f}"   if ari   is not None else "--"
-    floor_s = f"{floor:.3f}" if floor is not None else "--"
+    ari_s   = f"{ari:.3f}"   if ari   is not None else "---"
+    floor_s = f"{floor:.3f}" if floor is not None else "---"
     return f"{ari_s} ({floor_s})"
 
 
@@ -333,7 +306,7 @@ def detailed_run_table(run_dir: Path, assistant_label: str, run_id: str) -> tupl
         f"Evaluation results for \\texttt{{{assistant_label}}} "
         f"(run~\\texttt{{{run_id}}}, {len(rows)}~scenario(s))."
     )
-    label = f"tab:eval:{assistant_label.lower().replace(' ','_').replace('(','').replace(')','').replace('/','_')}:{run_id}"
+    label = f"tab:eval:{assistant_label.lower().replace(' ','_')}:{run_id}"
 
     try:
         import pandas as pd
@@ -489,8 +462,8 @@ def metric_matrix_tables(runs: list[tuple[str, dict[int, dict]]]) -> list[str]:
             col_spec = "l" + "r" * len(fault_types)
             lines = [
                 "\\begin{table}[htbp]", "\\centering",
-                f"\\caption{{{metric_label} by system and fault type -- {run_name}}}",
-                f"\\label{{tab:matrix:{run_name.lower().replace(' ','_').replace('(','').replace(')','').replace('/','_')}:{metric_key}}}",
+                f"\\caption{{{metric_label} by system and fault type — {run_name}}}",
+                f"\\label{{tab:matrix:{run_name.lower().replace(' ','_')}:{metric_key}}}",
                 f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
                 "System & " + " & ".join(ft.replace(" ", "~") for ft in fault_types) + " \\\\",
                 "\\midrule",
@@ -518,485 +491,6 @@ def metric_matrix_tables(runs: list[tuple[str, dict[int, dict]]]) -> list[str]:
             ]
             tables.append("\n".join(lines))
     return tables
-
-
-# ---------------------------------------------------------------------------
-# Table 6: convergence report
-# ---------------------------------------------------------------------------
-
-def convergence_report_latex(
-    specs: list[tuple[str, str]],
-    checkpoint_dir: Path,
-    run_labels: dict[tuple[str,str], str],
-) -> str:
-    """LaTeX table: one row per scenario, columns = converged/stopped/batches per run."""
-    all_checkpoints: dict[tuple[str,str], dict[int, dict]] = {}
-    all_scenarios: set[int] = set()
-    for assistant, run_id in specs:
-        run_dir = checkpoint_dir / assistant / run_id
-        ckpts = load_checkpoints(run_dir)
-        mapping = {c["scenario_number"]: c for c in ckpts}
-        all_checkpoints[(assistant, run_id)] = mapping
-        all_scenarios.update(mapping.keys())
-
-    n = len(specs)
-    col_spec = "rll" + "cccc" * n
-    mid_cols = "".join(f"\\cmidrule(lr){{{4 + i*4}-{7 + i*4}}}" for i in range(n))
-    hdr_names = " & ".join(
-        f"\\multicolumn{{4}}{{c}}{{{run_labels[(a,r)].replace('_','-')}}}"
-        for a, r in specs
-    )
-    hdr_cols = " & ".join("Conv. & Stop & Batches & Trunc" for _ in specs)
-
-    lines = [
-        "\\begin{table}[htbp]", "\\centering",
-        "\\caption{Convergence report per scenario}",
-        "\\label{tab:convergence}", "\\small",
-        f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
-        f"\\multicolumn{{3}}{{c}}{{Scenario}} & {hdr_names} \\\\",
-        f"\\cmidrule(lr){{1-3}}{mid_cols}",
-        f"\\# & System & Fault type & {hdr_cols} \\\\",
-        "\\midrule",
-    ]
-
-    for snum in sorted(all_scenarios):
-        meta = scenario_meta(snum)
-        sys_label   = SYSTEM_LABELS.get(meta["system"], meta["system"])
-        fault_label = ", ".join(meta["fault_tags"])
-        cells_parts = []
-        for assistant, run_id in specs:
-            ckpt = all_checkpoints[(assistant, run_id)].get(snum)
-            if ckpt is None:
-                cells_parts.append("-- & -- & -- & --")
-            else:
-                conv  = "\\checkmark" if ckpt.get("converged") else ""
-                stop  = "\\checkmark" if ckpt.get("stopped") else ""
-                nb    = ckpt.get("batch_index", "?")
-                nt    = ckpt.get("n_truncations", 0)
-                trunc = str(nt) if nt else ""
-                cells_parts.append(f"{conv} & {stop} & {nb} & {trunc}")
-        lines.append(f"{snum} & {sys_label} & {fault_label} & " + " & ".join(cells_parts) + " \\\\")
-
-    lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}"]
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Heatmaps (matplotlib) — saved to Images/, included in LaTeX
-# ---------------------------------------------------------------------------
-
-def _raw_matrix(
-    data: dict[int, dict],
-    fault_types: list[str],
-    metric_key: str,
-    use_std: bool,
-) -> tuple[list[list[float]], list[str], list[str]]:
-    """Return (matrix, row_labels, col_labels) with NaN for missing cells."""
-    import math
-    systems = list(SYSTEM_RANGES.keys())
-    row_labels = [SYSTEM_LABELS[s] for s in systems]
-    col_labels = fault_types
-    matrix: list[list[float]] = []
-    for sys in systems:
-        nums = list(SYSTEM_RANGES[sys])
-        row = []
-        for ft in fault_types:
-            vals = [
-                data[n][metric_key] for n in nums
-                if n in data and ft in data[n]["fault_tags"] and data[n][metric_key] == data[n][metric_key]
-            ]
-            if not vals:
-                row.append(float("nan"))
-            elif use_std:
-                row.append(statistics.stdev(vals) if len(vals) > 1 else 0.0)
-            else:
-                row.append(statistics.mean(vals))
-        matrix.append(row)
-    return matrix, row_labels, col_labels
-
-
-def generate_heatmaps(
-    runs: list[tuple[str, dict[int, dict]]],
-    checkpoint_dir: Path,
-    images_dir: Path,
-) -> list[tuple[str, str]]:
-    """
-    Generate heatmap PNGs for each metric matrix.
-    Returns list of (latex_figure_code, description) for inclusion.
-    """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
-        import math
-    except ImportError:
-        print("(matplotlib not available — skipping heatmaps)")
-        return []
-
-    images_dir.mkdir(parents=True, exist_ok=True)
-    all_data = {num: row for _, d in runs for num, row in d.items()}
-    fault_types = all_fault_types(all_data)
-
-    metrics = [
-        ("success_rate", "Success Rate", True),
-        ("total_cost",   "Total Cost",   False),
-        ("n_actions",    "Actions",      False),
-    ]
-
-    latex_blocks: list[tuple[str, str]] = []
-
-    for run_name, data in runs:
-        safe_run = run_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-        for metric_key, metric_label, is_pct in metrics:
-            fig_paths = []
-            for use_std, stat_label, stat_short in [(False, "Mean", "mean"), (True, "Std", "std")]:
-                matrix, row_labels, col_labels = _raw_matrix(data, fault_types, metric_key, use_std)
-
-                # Normalise for colour
-                flat = [v for row in matrix for v in row if not math.isnan(v)]
-                vmin = min(flat) if flat else 0.0
-                vmax = max(flat) if flat else 1.0
-                if vmax == vmin:
-                    vmax = vmin + 1e-6
-
-                fig, ax = plt.subplots(figsize=(max(4, len(col_labels) * 0.9), max(2.5, len(row_labels) * 0.6)))
-                import numpy as np
-                arr = np.array(matrix, dtype=float)
-                cmap = "YlOrRd" if not use_std else "Blues"
-                im = ax.imshow(arr, aspect="auto", vmin=vmin, vmax=vmax, cmap=cmap)
-                ax.set_xticks(range(len(col_labels)))
-                ax.set_xticklabels(col_labels, rotation=40, ha="right", fontsize=7)
-                ax.set_yticks(range(len(row_labels)))
-                ax.set_yticklabels(row_labels, fontsize=7)
-                ax.set_title(f"{metric_label} {stat_label} — {run_name}", fontsize=8, pad=4)
-                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-                # Annotate cells
-                for r, row in enumerate(matrix):
-                    for c, val in enumerate(row):
-                        if not math.isnan(val):
-                            txt = f"{val*100:.0f}%" if is_pct and not use_std else f"{val:.1f}"
-                            ax.text(c, r, txt, ha="center", va="center",
-                                    fontsize=6, color="black" if val < (vmin + (vmax - vmin) * 0.6) else "white")
-
-                plt.tight_layout()
-                fname = f"heatmap_{safe_run}_{metric_key}_{stat_short}.pdf"
-                fpath = images_dir / fname
-                fig.savefig(fpath, bbox_inches="tight")
-                plt.close(fig)
-                fig_paths.append((fpath.name, f"{metric_label} {stat_label}"))
-
-            # Emit one figure with two subfigures side by side
-            slug = f"fig:heatmap:{safe_run}:{metric_key}"
-            latex = (
-                "\\begin{figure}[htbp]\n\\centering\n"
-                + "".join(
-                    f"  \\includegraphics[width=0.48\\linewidth]{{Images/{fname}}}\n"
-                    for fname, _ in fig_paths
-                )
-                + f"\\caption{{{metric_label} heatmaps (mean left, std right) -- {run_name}}}\n"
-                f"\\label{{{slug}}}\n"
-                "\\end{figure}\n"
-            )
-            latex_blocks.append((latex, f"Heatmap: {run_name} / {metric_label}"))
-
-    # --- Diff heatmaps: each non-baseline model vs. baseline ---
-    if len(runs) >= 2:
-        baseline_name, baseline_data = runs[0]
-        safe_base = baseline_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-
-        for run_name, data in runs[1:]:
-            safe_run = run_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-            for metric_key, metric_label, is_pct in metrics:
-                base_matrix, row_labels, col_labels = _raw_matrix(baseline_data, fault_types, metric_key, use_std=False)
-                comp_matrix, _, _                   = _raw_matrix(data,          fault_types, metric_key, use_std=False)
-
-                import numpy as np
-                base_arr = np.array(base_matrix, dtype=float)
-                comp_arr = np.array(comp_matrix, dtype=float)
-                diff_arr = comp_arr - base_arr  # positive = model better than baseline
-
-                flat = [v for v in diff_arr.flatten() if not math.isnan(v)]
-                if not flat:
-                    continue
-                abs_max = max(abs(min(flat)), abs(max(flat)), 1e-6)
-
-                fig, ax = plt.subplots(figsize=(max(4, len(col_labels) * 0.9), max(2.5, len(row_labels) * 0.6)))
-                im = ax.imshow(diff_arr, aspect="auto",
-                               vmin=-abs_max, vmax=abs_max, cmap="RdYlGn")
-                ax.set_xticks(range(len(col_labels)))
-                ax.set_xticklabels(col_labels, rotation=40, ha="right", fontsize=7)
-                ax.set_yticks(range(len(row_labels)))
-                ax.set_yticklabels(row_labels, fontsize=7)
-                ax.set_title(f"{metric_label} diff: {run_name} − {baseline_name}", fontsize=8, pad=4)
-                cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-                cbar.set_label("Δ (green = model better)", fontsize=6)
-
-                for r, row in enumerate(diff_arr):
-                    for c, val in enumerate(row):
-                        if not math.isnan(val):
-                            txt = f"{val*100:+.0f}%" if is_pct else f"{val:+.1f}"
-                            ax.text(c, r, txt, ha="center", va="center",
-                                    fontsize=6, color="black")
-
-                plt.tight_layout()
-                fname = f"heatmap_diff_{safe_run}_vs_{safe_base}_{metric_key}.pdf"
-                fpath = images_dir / fname
-                fig.savefig(fpath, bbox_inches="tight")
-                plt.close(fig)
-
-                slug  = f"fig:heatmap:diff:{safe_run}_vs_{safe_base}:{metric_key}"
-                latex = (
-                    "\\begin{figure}[htbp]\n\\centering\n"
-                    f"  \\includegraphics[width=0.65\\linewidth]{{Images/{fname}}}\n"
-                    f"\\caption{{\\textbf{{Diff heatmap}}: {metric_label} — {run_name} minus {baseline_name}. "
-                    "Green = model outperforms baseline; red = baseline outperforms model.}}\n"
-                    f"\\label{{{slug}}}\n"
-                    "\\end{figure}\n"
-                )
-                latex_blocks.append((latex, f"Diff heatmap: {run_name} vs {baseline_name} / {metric_label}"))
-
-    return latex_blocks
-
-
-# ---------------------------------------------------------------------------
-# Cost vs. success scatter plot
-# ---------------------------------------------------------------------------
-
-# Okabe-Ito palette — colour-blind safe, one colour per model run
-_OI_COLORS = [
-    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
-    "#0072B2", "#D55E00", "#CC79A7", "#000000",
-]
-_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
-
-
-def generate_cost_vs_success_scatter(
-    runs: list[tuple[str, dict[int, dict]]],
-    images_dir: Path,
-) -> tuple[str, str]:
-    """
-    One point per (model, system).
-    X = mean total_cost, Y = mean success_rate.
-    Error bars: std across scenarios within that system.
-    Each model gets a distinct colour + marker shape.
-    Systems are distinguished by text labels on the points.
-
-    Returns (latex_figure_code, description).
-    """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.lines as mlines
-        import numpy as np
-        import statistics as _st
-    except ImportError:
-        return "", ""
-
-    images_dir.mkdir(parents=True, exist_ok=True)
-
-    sys_short = {
-        "3_cubes":              "3C",
-        "10_cubes":             "10C",
-        "asymmetric_chains":    "AC",
-        "ambient_light_sensor": "ALS",
-        "current_sensor":       "CS",
-    }
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-
-    legend_handles = []
-    for run_idx, (run_name, data) in enumerate(runs):
-        color  = _OI_COLORS[run_idx % len(_OI_COLORS)]
-        marker = _MARKERS[run_idx % len(_MARKERS)]
-
-        for sys, rng in SYSTEM_RANGES.items():
-            nums = [n for n in rng if n in data]
-            if not nums:
-                continue
-            costs   = [data[n]["total_cost"]   for n in nums if data[n]["total_cost"]   == data[n]["total_cost"]]
-            succs   = [data[n]["success_rate"]  for n in nums if data[n]["success_rate"] == data[n]["success_rate"]]
-            if not costs or not succs:
-                continue
-            x  = _st.mean(costs)
-            y  = _st.mean(succs)
-            xe = _st.stdev(costs)  if len(costs) > 1 else 0.0
-            ye = _st.stdev(succs)  if len(succs) > 1 else 0.0
-
-            ax.errorbar(x, y, xerr=xe, yerr=ye,
-                        fmt=marker, color=color, markersize=7,
-                        elinewidth=0.8, capsize=3, alpha=0.85, zorder=3)
-            ax.annotate(sys_short[sys], (x, y),
-                        textcoords="offset points", xytext=(5, 3),
-                        fontsize=7, color=color, alpha=0.9)
-
-        handle = mlines.Line2D([], [], color=color, marker=marker,
-                               linestyle="None", markersize=7, label=run_name)
-        legend_handles.append(handle)
-
-    ax.set_xlabel("Mean total cost (technician-seconds)", fontsize=9)
-    ax.set_ylabel("Mean success rate", fontsize=9)
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
-    ax.set_title("Cost vs. success rate per model and system\n(error bars = std across scenarios)", fontsize=9)
-    ax.legend(handles=legend_handles, fontsize=8, loc="best")
-    ax.grid(True, linewidth=0.4, alpha=0.5)
-    plt.tight_layout()
-
-    fname = "scatter_cost_vs_success.pdf"
-    fpath = images_dir / fname
-    fig.savefig(fpath, bbox_inches="tight")
-    plt.close(fig)
-
-    latex = (
-        "\\begin{figure}[htbp]\n\\centering\n"
-        f"  \\includegraphics[width=0.75\\linewidth]{{Images/{fname}}}\n"
-        "\\caption{Cost vs.\\ success rate per model and system. "
-        "Each point is one (model, system) pair; error bars show standard deviation "
-        "across scenarios. Labels: 3C=3-Cubes, 10C=10-Cubes, AC=Asym.\\ Chains, "
-        "ALS=Ambient Light Sensor, CS=Current Sensor.}\n"
-        "\\label{fig:scatter:cost_vs_success}\n"
-        "\\end{figure}\n"
-    )
-    return latex, "Scatter: cost vs. success rate"
-
-
-# ---------------------------------------------------------------------------
-# Radar charts — rubric ratings per fault type
-# ---------------------------------------------------------------------------
-
-_RATING_NUM = {"low": 1, "medium": 2, "high": 3}
-
-
-def generate_rubric_radar_charts(
-    runs_qual: list[tuple[str, dict[int, dict]]],
-    runs_data: list[tuple[str, dict[int, dict]]],
-    images_dir: Path,
-) -> list[tuple[str, str]]:
-    """
-    One radar chart per fault type per run.
-    Each chart has 5 axes (rubric dims), 3 reference circles (L=1/M=2/H=3),
-    and one polygon whose vertices are the mean rating (1–3) per dimension.
-    Returns list of (latex_figure_code, description).
-    """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import numpy as np
-    except ImportError:
-        print("(matplotlib not available -- skipping radar charts)")
-        return []
-
-    images_dir.mkdir(parents=True, exist_ok=True)
-    all_data = {num: row for _, d in runs_data for num, row in d.items()}
-    fault_types = all_fault_types(all_data)
-
-    dim_labels = [RUBRIC_DIM_LABELS[d] for d in RUBRIC_DIMS]
-    N = len(RUBRIC_DIMS)
-    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
-    angles += angles[:1]  # close polygon
-
-    latex_blocks: list[tuple[str, str]] = []
-
-    for run_name, qual_data in runs_qual:
-        safe_run = run_name.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
-
-        # Collect per-fault-type mean ratings
-        ft_means: dict[str, list[float]] = {}
-        for ft in fault_types:
-            nums = {n for n in qual_data if ft in scenario_meta(n)["fault_tags"]}
-            if not nums:
-                continue
-            dim_vals: dict[str, list[float]] = {d: [] for d in RUBRIC_DIMS}
-            for n in nums:
-                for rs in qual_data[n].get("rubric_scores", []):
-                    for dim in RUBRIC_DIMS:
-                        dv = rs.get(dim)
-                        if isinstance(dv, dict):
-                            rating = dv.get("rating", "").lower().strip()
-                            num_val = _RATING_NUM.get(rating)
-                            if num_val is not None:
-                                dim_vals[dim].append(float(num_val))
-            means = [
-                (sum(dim_vals[d]) / len(dim_vals[d])) if dim_vals[d] else float("nan")
-                for d in RUBRIC_DIMS
-            ]
-            ft_means[ft] = means
-
-        if not ft_means:
-            continue
-
-        # One subplot per fault type, arranged in a grid
-        n_fts = len(ft_means)
-        ncols = min(3, n_fts)
-        nrows = (n_fts + ncols - 1) // ncols
-        fig, axes = plt.subplots(
-            nrows, ncols,
-            figsize=(ncols * 2.8, nrows * 2.8),
-            subplot_kw={"projection": "polar"},
-        )
-        if n_fts == 1:
-            axes = np.array([[axes]])
-        elif nrows == 1:
-            axes = axes.reshape(1, -1)
-        elif ncols == 1:
-            axes = axes.reshape(-1, 1)
-
-        # Color cycle
-        colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-
-        for idx, (ft, means) in enumerate(ft_means.items()):
-            ax = axes[idx // ncols][idx % ncols]
-
-            # Reference circles at 1, 2, 3
-            for level, ls, lc in [(1, ":", "#bbbbbb"), (2, "--", "#999999"), (3, "-", "#666666")]:
-                circle_vals = [level] * N + [level]
-                ax.plot(angles, circle_vals, linestyle=ls, color=lc, linewidth=0.7, zorder=1)
-                ax.fill(angles, circle_vals, alpha=0.0)
-
-            # Data polygon
-            vals = means + means[:1]
-            color = colors[idx % len(colors)]
-            ax.plot(angles, vals, color=color, linewidth=1.8, zorder=3)
-            ax.fill(angles, vals, alpha=0.18, color=color, zorder=2)
-
-            ax.set_xticks(angles[:-1])
-            ax.set_xticklabels(dim_labels, size=6)
-            ax.set_yticks([1, 2, 3])
-            ax.set_yticklabels(["L", "M", "H"], size=6)
-            ax.set_ylim(0, 3.3)
-            ax.set_title(ft, size=7, pad=6, fontweight="bold")
-            ax.tick_params(axis="y", labelsize=5)
-            # Keep circles, remove spokes and outer spine
-            ax.xaxis.grid(False)
-            ax.yaxis.grid(True, color="#bbbbbb", linewidth=0.6)
-            ax.spines["polar"].set_visible(False)
-
-        # Hide empty subplots
-        for idx in range(n_fts, nrows * ncols):
-            axes[idx // ncols][idx % ncols].set_visible(False)
-
-        fig.suptitle(f"Rubric ratings by fault type -- {run_name}", size=8, y=1.01)
-        plt.tight_layout()
-        fname = f"radar_{safe_run}_rubric_by_fault_type.pdf"
-        fpath = images_dir / fname
-        fig.savefig(fpath, bbox_inches="tight")
-        plt.close(fig)
-
-        latex = (
-            "\\begin{figure}[htbp]\n\\centering\n"
-            f"  \\includegraphics[width=\\linewidth]{{Images/{fname}}}\n"
-            f"\\caption{{Rubric ratings radar chart by fault type -- {run_name}. "
-            "Axes: actionability, diagnostic coherence, efficiency, consistency, evidence usage. "
-            "Reference circles: L=1, M=2, H=3.}}\n"
-            f"\\label{{fig:radar:{safe_run}:rubric_fault}}\n"
-            "\\end{figure}\n"
-        )
-        latex_blocks.append((latex, f"Radar: {run_name} / rubric by fault type"))
-
-    return latex_blocks
 
 
 # ---------------------------------------------------------------------------
@@ -1065,12 +559,16 @@ def qualitative_aggregate_text(
     for run_name, qual_data in runs_qual:
         lines.append(f"\n--- {run_name} ---")
 
+        # --- Rubric ratings by dimension ---
         per_dim = _collect_rubric_ratings(qual_data)
         lines.append("\nRubric rating distribution (H:high M:medium L:low):")
+        col_w = 12
+        header = f"  {'Dimension':<22}" + "".join(f"{'dist':>{col_w}}")
         for dim in RUBRIC_DIMS:
             ratings = per_dim[dim]
             lines.append(f"  {RUBRIC_DIM_LABELS[dim]:<22} {_rating_dist_str(ratings)}")
 
+        # --- Rubric by system ---
         lines.append("\nRubric ratings by system:")
         header = f"  {'':22}" + "".join(f"{RUBRIC_DIM_LABELS[d]:>14}" for d in RUBRIC_DIMS)
         lines.append(header)
@@ -1085,6 +583,7 @@ def qualitative_aggregate_text(
             )
             lines.append(row)
 
+        # --- Rubric by fault type ---
         lines.append("\nRubric ratings by fault type:")
         lines.append(header)
         for ft in fault_types:
@@ -1098,6 +597,7 @@ def qualitative_aggregate_text(
             )
             lines.append(row)
 
+        # --- Gold match levels ---
         all_levels = _collect_match_levels(qual_data)
         lines.append(f"\nGold match distribution (overall): {_match_dist_str(all_levels)}")
         lines.append("  C=correct  D=different_strategy  P=partial  I=incorrect")
@@ -1135,16 +635,17 @@ def qualitative_aggregate_latex(
     fault_types = all_fault_types(all_data)
     tables = []
 
+    # One table per run: rubric ratings × system, then rubric ratings × fault type
     for run_name, qual_data in runs_qual:
         per_dim_global = _collect_rubric_ratings(qual_data)
         dim_labels     = [RUBRIC_DIM_LABELS[d] for d in RUBRIC_DIMS]
-        safe = run_name.lower().replace(" ", "_").replace("(","").replace(")","").replace("/","_")
 
+        # --- Rubric by system ---
         col_spec = "l" + "r" * len(RUBRIC_DIMS)
         lines = [
             "\\begin{table}[htbp]", "\\centering",
-            f"\\caption{{Rubric rating distribution by system -- {run_name} (H/M/L counts)}}",
-            f"\\label{{tab:rubric_system:{safe}}}",
+            f"\\caption{{Rubric rating distribution by system — {run_name} (H/M/L counts)}}",
+            f"\\label{{tab:rubric_system:{run_name.lower().replace(' ','_')}}}",
             f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
             "System & " + " & ".join(dl.replace(" ", "~") for dl in dim_labels) + " \\\\",
             "\\midrule",
@@ -1166,10 +667,11 @@ def qualitative_aggregate_latex(
         ]
         tables.append("\n".join(lines))
 
+        # --- Rubric by fault type ---
         lines = [
             "\\begin{table}[htbp]", "\\centering",
-            f"\\caption{{Rubric rating distribution by fault type -- {run_name}}}",
-            f"\\label{{tab:rubric_fault:{safe}}}",
+            f"\\caption{{Rubric rating distribution by fault type — {run_name}}}",
+            f"\\label{{tab:rubric_fault:{run_name.lower().replace(' ','_')}}}",
             f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
             "Fault type & " + " & ".join(dl.replace(" ", "~") for dl in dim_labels) + " \\\\",
             "\\midrule",
@@ -1191,10 +693,11 @@ def qualitative_aggregate_latex(
         ]
         tables.append("\n".join(lines))
 
+        # --- Gold match by system ---
         lines = [
             "\\begin{table}[htbp]", "\\centering",
-            f"\\caption{{Gold standard match distribution -- {run_name}}}",
-            f"\\label{{tab:gold_match:{safe}}}",
+            f"\\caption{{Gold standard match distribution — {run_name}}}",
+            f"\\label{{tab:gold_match:{run_name.lower().replace(' ','_')}}}",
             "\\begin{tabular}{lll}", "\\toprule",
             "Dimension & Breakdown & N \\\\", "\\midrule",
             "\\textit{By system}\\\\[2pt]",
@@ -1254,11 +757,11 @@ def text_summary(runs: list[tuple[str, dict[int, dict]]]) -> str:
         lines.append(f"\n--- {name} ---")
         lines.append(f"  Scenarios: {len(data)}")
         mu, sd = agg(data, "success_rate")
-        lines.append(f"  Success rate:  {mu*100:.1f}% +/- {sd*100:.1f}%")
+        lines.append(f"  Success rate:  {mu*100:.1f}% ± {sd*100:.1f}%")
         mu, sd = agg(data, "total_cost")
-        lines.append(f"  Avg cost:      {mu:.1f} +/- {sd:.1f}")
+        lines.append(f"  Avg cost:      {mu:.1f} ± {sd:.1f}")
         mu, sd = agg(data, "n_actions")
-        lines.append(f"  Avg actions:   {mu:.2f} +/- {sd:.2f}")
+        lines.append(f"  Avg actions:   {mu:.2f} ± {sd:.2f}")
         converged = sum(1 for d in data.values() if d.get("reason") == "converged")
         lines.append(f"  Converged:     {converged}/{len(data)}")
 
@@ -1305,14 +808,9 @@ def main() -> None:
         "--checkpoint-dir", default="Logs/Evaluation",
         help="Root directory for checkpoints (default: Logs/Evaluation).",
     )
-    parser.add_argument(
-        "--images-dir", default="Images",
-        help="Directory to save heatmap images (default: Images/).",
-    )
     args = parser.parse_args()
 
     ckpt = Path(args.checkpoint_dir)
-    images_dir = Path(args.images_dir)
 
     if args.run:
         specs: list[tuple[str, str]] = []
@@ -1333,9 +831,6 @@ def main() -> None:
             print("No runs found. Use --run AssistantType:run_id or run the evaluation protocol first.")
             sys.exit(1)
 
-    # Build assistant labels (with model name) for all specs
-    run_labels = {(a, r): assistant_label(a, r, ckpt) for a, r in specs}
-
     all_latex: list[str] = []
 
     # --- Table 1: detailed per-run ---
@@ -1344,24 +839,22 @@ def main() -> None:
     print("=" * 60)
     for assistant, run_id in specs:
         run_dir = ckpt / assistant / run_id
-        label = run_labels[(assistant, run_id)]
-        print(f"\n>>> {label} / {run_id}")
+        print(f"\n>>> {assistant} / {run_id}")
         if not run_dir.exists():
             print(f"  Not found: {run_dir}")
             continue
-        text, latex = detailed_run_table(run_dir, label, run_id)
+        text, latex = detailed_run_table(run_dir, assistant, run_id)
         print(text)
-        all_latex.append(f"% === Detailed: {label}/{run_id} ===\n{latex}")
+        all_latex.append(f"% === Detailed: {assistant}/{run_id} ===\n{latex}")
 
-    # --- Load report data (use labelled names) ---
+    # --- Load report data ---
     runs: list[tuple[str, dict[int, dict]]] = []
     for assistant, run_id in specs:
         data = load_run_reports(ckpt, assistant, run_id)
-        label = run_labels[(assistant, run_id)]
         if data:
-            runs.append((label, data))
+            runs.append((assistant, data))
         else:
-            print(f"\n(No final_report.txt for {assistant}/{run_id} -- skipping)")
+            print(f"\n(No final_report.txt for {assistant}/{run_id} — skipping)")
 
     if not runs:
         _copy_latex("\n\n".join(all_latex))
@@ -1370,7 +863,7 @@ def main() -> None:
     print("\n")
     print(text_summary(runs))
 
-    # --- Tables 2-4 ---
+    # --- Tables 2–4 ---
     t2 = per_scenario_table(runs)
     t3 = aggregate_table_by_system(runs)
     t4 = aggregate_table_by_fault_type(runs)
@@ -1390,42 +883,17 @@ def main() -> None:
 
     # --- Table 5: metric matrices ---
     matrices = metric_matrix_tables(runs)
-    print("\n% === Metric breakdown matrices (system x fault type) ===")
+    print("\n% === Metric breakdown matrices (system × fault type) ===")
     for m in matrices:
         print(m)
     all_latex += [f"% === Metric matrix ===\n{m}" for m in matrices]
 
-    # --- Heatmaps ---
-    heatmap_blocks = generate_heatmaps(runs, ckpt, images_dir)
-    if heatmap_blocks:
-        print(f"\n% === Heatmaps (saved to {images_dir}/) ===")
-        heatmap_latex_parts = []
-        for latex, desc in heatmap_blocks:
-            print(f"% {desc}")
-            print(latex)
-            heatmap_latex_parts.append(latex)
-        all_latex.append("% === Heatmaps ===\n" + "\n".join(heatmap_latex_parts))
-
-    # --- Scatter: cost vs. success ---
-    scatter_latex, scatter_desc = generate_cost_vs_success_scatter(runs, images_dir)
-    if scatter_latex:
-        print(f"\n% === {scatter_desc} (saved to {images_dir}/) ===")
-        print(scatter_latex)
-        all_latex.append(f"% === {scatter_desc} ===\n{scatter_latex}")
-
-    # --- Table 6: convergence report ---
-    conv_table = convergence_report_latex(specs, ckpt, run_labels)
-    print("\n% === Convergence report ===")
-    print(conv_table)
-    all_latex.append(f"% === Convergence report ===\n{conv_table}")
-
-    # --- Table 7: qualitative ---
+    # --- Table 6: qualitative ---
     runs_qual: list[tuple[str, dict[int, dict]]] = []
     for assistant, run_id in specs:
         qual_data = load_qualitative(ckpt, assistant, run_id)
-        label = run_labels[(assistant, run_id)]
         if qual_data:
-            runs_qual.append((label, qual_data))
+            runs_qual.append((assistant, qual_data))
 
     if runs_qual:
         print("\n")
@@ -1436,35 +904,24 @@ def main() -> None:
             print(t)
         all_latex += [f"% === Qualitative aggregate ===\n" + "\n\n".join(qual_latex)]
 
-        # --- Radar charts ---
-        radar_blocks = generate_rubric_radar_charts(runs_qual, runs, images_dir)
-        if radar_blocks:
-            print(f"\n% === Rubric radar charts (saved to {images_dir}/) ===")
-            radar_latex_parts = []
-            for latex, desc in radar_blocks:
-                print(f"% {desc}")
-                print(latex)
-                radar_latex_parts.append(latex)
-            all_latex.append("% === Radar charts ===\n" + "\n".join(radar_latex_parts))
-
+        # --- Prose qualitative summary (written by protocol, read here) ---
         print("\n" + "=" * 60)
         print("QUALITATIVE PROSE SUMMARY")
         print("=" * 60)
         for assistant, run_id in specs:
-            label = run_labels[(assistant, run_id)]
             summary = load_qualitative_summary(ckpt, assistant, run_id)
             if summary:
-                print(f"\n--- {label} / {run_id} ---")
+                print(f"\n--- {assistant} / {run_id} ---")
                 print(summary)
                 all_latex.append(
-                    f"% === Qualitative prose summary: {label}/{run_id} ===\n"
+                    f"% === Qualitative prose summary: {assistant}/{run_id} ===\n"
                     f"% {summary.replace(chr(10), chr(10) + '% ')}"
                 )
             else:
-                print(f"\n--- {label} / {run_id} ---")
-                print("  (no qualitative_summary.txt -- re-run protocol with --resume to generate)")
+                print(f"\n--- {assistant} / {run_id} ---")
+                print("  (no qualitative_summary.txt — re-run protocol with --resume to generate)")
     else:
-        print("\n(No qualitative.json files found -- run with --resume to regenerate)")
+        print("\n(No qualitative.json files found — run with --resume to regenerate)")
 
     _copy_latex("\n\n".join(all_latex))
 

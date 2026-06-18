@@ -15,10 +15,6 @@ from configuration import Configuration
 from voice_client import send_prompt, get_user_text
 from time import perf_counter
 
-class LLMTruncationError(Exception):
-    """Raised when the LLM returns truncated or unparseable JSON output."""
-
-
 # Fallback action costs used when no precise simulation cost is available
 # (i.e. when the service agent is Human, LLM, or Mock rather than SpiceSim).
 # SpiceSim overrides these with actual simulation wall-clock time per action.
@@ -551,13 +547,7 @@ async def run_diagnostic_scenario(
 
     while True:
         start = perf_counter()
-        try:
-            suggestion = await assistant.suggest_action()
-        except LLMTruncationError:
-            end_value = "llm_truncation"
-            if chat_log:
-                chat_log.system("⚠ LLM returned truncated or invalid JSON — session terminated.")
-            break
+        suggestion = await assistant.suggest_action()
         end = perf_counter()
         time_vector.append(end - start)
 

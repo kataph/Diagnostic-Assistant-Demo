@@ -67,7 +67,6 @@ class ProtocolConfig:
     )
     max_batches_per_scenario: Optional[int] = None
     allow_constant_batches: bool = False
-    extend: bool = False
 
     # Execution control
     interactive: bool = True
@@ -122,7 +121,6 @@ class ScenarioState:
     converged: bool = False
     stopped: bool = False
     error: bool = False
-    n_truncations: int = 0
     batch_history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -130,7 +128,6 @@ class ScenarioState:
             "scenario_number": self.scenario_number,
             "batch_index": self.batch_index,
             "n_trajectories": len(self.trajectory_paths),
-            "n_truncations": self.n_truncations,
             "trajectory_paths": self.trajectory_paths,
             "cluster_assignments_intent": self.cluster_assignments_intent,
             "cluster_assignments_execution": self.cluster_assignments_execution,
@@ -154,7 +151,6 @@ class ScenarioState:
         s.converged = d.get("converged", False)
         s.stopped = d.get("stopped", False)
         s.error = d.get("error", False)
-        s.n_truncations = d.get("n_truncations", 0)
         s.batch_history = d.get("batch_history", [])
         return s
 
@@ -402,9 +398,7 @@ class AdaptiveEvaluationProtocol:
 
         state.trajectory_paths.extend([str(p) for p in new_paths])
 
-        all_trajs = self._load_trajectories(state.trajectory_paths)
-        trajectories = [t for t in all_trajs if t.get("end") != "llm_truncation"]
-        state.n_truncations = sum(1 for t in all_trajs if t.get("end") == "llm_truncation")
+        trajectories = self._load_trajectories(state.trajectory_paths)
         n = len(trajectories)
 
         # Build sequences
@@ -567,7 +561,6 @@ class AdaptiveEvaluationProtocol:
             "batch_index": state.batch_index,
             "batch_elapsed_s": round(time.perf_counter() - _batch_t0, 1),
             "n_trajectories": n,
-            "n_truncations": state.n_truncations,
             "n_clusters_intent": n_clusters_intent,
             "n_clusters_execution": n_clusters_execution,
             "ari_inter_intent": ari_inter_intent,
@@ -676,8 +669,7 @@ class AdaptiveEvaluationProtocol:
             )
             return
 
-        trajectories = [t for t in self._load_trajectories(state.trajectory_paths)
-                        if t.get("end") != "llm_truncation"]
+        trajectories = self._load_trajectories(state.trajectory_paths)
         intent_seqs  = [intent_sequence(t) for t in trajectories]
 
         cluster_labels: Optional[dict[int, str]] = None
@@ -872,10 +864,7 @@ class AdaptiveEvaluationProtocol:
                 f"[Scenario {scenario_number}] Resuming from checkpoint "
                 f"(batch {data.get('batch_index', 0)})."
             )
-            state = ScenarioState.from_dict(data)
-            if self.config.extend and state.stopped and not state.error:
-                state.stopped = False
-            return state
+            return ScenarioState.from_dict(data)
         return ScenarioState(scenario_number=scenario_number)
 
     @staticmethod
