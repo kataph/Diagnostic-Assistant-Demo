@@ -501,49 +501,43 @@ def save_cluster_cost_histogram(
     cluster_label_names: Optional[dict[int, str]],
     output_path: Path,
     title: str = "",
-    n_bins: int = 15,
 ) -> None:
     """
-    Grouped histogram: horizontal axis = cost, vertical axis = count.
-    One colour-coded bar group per bin, one bar per cluster.
-    Clusters with very few members fall back to a KDE overlay instead of bars.
+    Bar chart: one bar per cluster, positioned at the cluster's mean cost on
+    the x-axis, height = count. Gives an immediate sense of where each cluster
+    sits on the cost axis.
     """
     cluster_ids = sorted(set(l for l in labels if l >= 0))
     if not cluster_ids:
         return
 
     data_by_cluster = {
-        cid: [c for c, l in zip(costs, labels) if l == cid]
+        cid: [c for c, l in zip(costs, labels) if l == cid and not np.isnan(c)]
         for cid in cluster_ids
     }
 
-    all_vals = [c for c in costs if not np.isnan(c)]
-    if not all_vals:
-        return
+    fig, ax = plt.subplots(figsize=(max(5, len(cluster_ids) * 1.4), 4))
 
-    vmin, vmax = min(all_vals), max(all_vals)
-    bin_edges = np.linspace(vmin, vmax, n_bins + 1)
+    # Determine a sensible bar width relative to cost range
+    all_means = [np.mean(data_by_cluster[cid]) for cid in cluster_ids if data_by_cluster[cid]]
+    cost_range = max(all_means) - min(all_means) if len(all_means) > 1 else max(all_means, default=1)
+    bar_w = max(cost_range * 0.06, 5.0)
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-
-    n_clusters = len(cluster_ids)
-    bar_width = (bin_edges[1] - bin_edges[0]) / (n_clusters + 1)
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-
-    for i, cid in enumerate(cluster_ids):
+    for cid in cluster_ids:
         vals = data_by_cluster[cid]
+        if not vals:
+            continue
+        mean_cost = float(np.mean(vals))
         color = _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
         name = (cluster_label_names or {}).get(cid, f"Cluster {cid}")
-        label = f"[{cid}] {name} (n={len(vals)})"
+        ax.bar(mean_cost, len(vals), width=bar_w,
+               color=color, alpha=0.75, label=f"[{cid}] {name} (n={len(vals)})", zorder=2)
+        ax.text(mean_cost, len(vals) + 0.1, f"μ={mean_cost:.0f}",
+                ha="center", va="bottom", fontsize=7)
 
-        counts, _ = np.histogram(vals, bins=bin_edges)
-        offsets = bin_centers + (i - n_clusters / 2 + 0.5) * bar_width
-        ax.bar(offsets, counts, width=bar_width * 0.9,
-               color=color, alpha=0.75, label=label, zorder=2)
-
-    ax.set_xlabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_xlabel("Mean total cost (technician-seconds)", fontsize=9)
     ax.set_ylabel("Count", fontsize=9)
-    ax.set_title(title or "Cost histogram per cluster", fontsize=9)
+    ax.set_title(title or "Cost per cluster (bar at mean)", fontsize=9)
     ax.legend(fontsize=7, loc="best")
     ax.grid(axis="y", linewidth=0.4, alpha=0.5)
 
@@ -555,4 +549,155 @@ def save_cluster_cost_histogram(
 
     plt.tight_layout()
     fig.savefig(output_path, bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+
+def save_cluster_cost_boxplot(
+    costs: list[float],
+    labels: list[int],
+    cluster_label_names: Optional[dict[int, str]],
+    output_path: Path,
+    title: str = "",
+) -> None:
+    """
+    Box-and-whisker plot: one box per cluster showing median, IQR, and outliers.
+    Complements the violin (which shows full density) with explicit quantile markers.
+    """
+    cluster_ids = sorted(set(l for l in labels if l >= 0))
+    if not cluster_ids:
+        return
+
+    data_by_cluster = {
+        cid: [c for c, l in zip(costs, labels) if l == cid and not np.isnan(c)]
+        for cid in cluster_ids
+    }
+
+    fig, ax = plt.subplots(figsize=(max(5, len(cluster_ids) * 1.4), 5))
+    positions = list(range(len(cluster_ids)))
+
+    box_data = [data_by_cluster[cid] for cid in cluster_ids]
+    bp = ax.boxplot(box_data, positions=positions, patch_artist=True,
+                    widths=0.5, showfliers=True,
+                    medianprops=dict(color="#333333", linewidth=1.5),
+                    flierprops=dict(marker="o", markersize=4, alpha=0.5))
+
+    for patch, cid in zip(bp["boxes"], cluster_ids):
+        color = _CLUSTER_COLORS[cid % len(_CLUSTER_COLORS)]
+        patch.set_facecolor(color)
+        patch.set_alpha(0.55)
+
+    tick_labels = [
+        (cluster_label_names or {}).get(cid, f"C{cid}") + f"\n(n={len(data_by_cluster[cid])})"
+        for cid in cluster_ids
+    ]
+    ax.set_xticks(positions)
+    ax.set_xticklabels(tick_labels, fontsize=7)
+    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_title(title or "Cost boxplot per cluster", fontsize=9)
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+
+    noise_count = sum(1 for l in labels if l < 0)
+    if noise_count:
+        ax.text(0.99, 0.01, f"noise (excluded): {noise_count}",
+                transform=ax.transAxes, fontsize=7, ha="right", va="bottom",
+                color="#999999")
+
+    plt.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Cross-scenario aggregate cost plots
+# ---------------------------------------------------------------------------
+
+def save_aggregate_cost_plots(
+    per_scenario_data: list[dict],
+    output_dir: Path,
+    title_prefix: str = "",
+) -> None:
+    """
+    Aggregate violin + histogram + boxplot across all scenarios in a run.
+
+    per_scenario_data is a list of dicts, one per scenario, each with:
+      - "costs":  list[float]  — total_cost per trajectory
+      - "labels": list[int]    — intent cluster assignment per trajectory (unused for aggregate)
+      - "scenario": int        — scenario number
+    """
+    all_costs: list[float] = []
+    all_scenario_ids: list[int] = []
+
+    for entry in per_scenario_data:
+        costs = entry.get("costs", [])
+        labels = entry.get("labels", [])
+        scen = entry.get("scenario", 0)
+        for c, l in zip(costs, labels):
+            if l >= 0 and not np.isnan(c):
+                all_costs.append(c)
+                all_scenario_ids.append(scen)
+
+    if not all_costs:
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scenarios = sorted(set(all_scenario_ids))
+    data_by_scen = {s: [c for c, sid in zip(all_costs, all_scenario_ids) if sid == s] for s in scenarios}
+    positions = list(range(len(scenarios)))
+    violin_data = [data_by_scen[s] for s in scenarios]
+
+    # Violin per scenario
+    fig, ax = plt.subplots(figsize=(max(6, len(scenarios) * 0.6), 5))
+    parts = ax.violinplot(violin_data, positions=positions, showmedians=True, widths=0.7)
+    for pc in parts["bodies"]:
+        pc.set_facecolor("#56B4E9")
+        pc.set_alpha(0.45)
+    for key in ("cmedians", "cmins", "cmaxes", "cbars"):
+        if key in parts:
+            parts[key].set_color("#333333")
+    rng = np.random.default_rng(0)
+    for pos, s in zip(positions, scenarios):
+        vals = data_by_scen[s]
+        jitter = rng.uniform(-0.18, 0.18, size=len(vals))
+        ax.scatter(np.array(pos) + jitter, vals, s=8, alpha=0.5, color="#0072B2", zorder=3, linewidths=0)
+    ax.set_xticks(positions)
+    ax.set_xticklabels([str(s) for s in scenarios], fontsize=6, rotation=90)
+    ax.set_xlabel("Scenario", fontsize=9)
+    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_title(f"{title_prefix}Cost distribution across scenarios", fontsize=9)
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+    plt.tight_layout()
+    fig.savefig(output_dir / "aggregate_cost_violin.png", bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+    # Boxplot per scenario
+    fig, ax = plt.subplots(figsize=(max(6, len(scenarios) * 0.6), 5))
+    bp = ax.boxplot(violin_data, positions=positions, patch_artist=True, widths=0.5,
+                    showfliers=True,
+                    medianprops=dict(color="#333333", linewidth=1.5),
+                    flierprops=dict(marker="o", markersize=3, alpha=0.4))
+    for patch in bp["boxes"]:
+        patch.set_facecolor("#56B4E9")
+        patch.set_alpha(0.5)
+    ax.set_xticks(positions)
+    ax.set_xticklabels([str(s) for s in scenarios], fontsize=6, rotation=90)
+    ax.set_xlabel("Scenario", fontsize=9)
+    ax.set_ylabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_title(f"{title_prefix}Cost boxplot across scenarios", fontsize=9)
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+    plt.tight_layout()
+    fig.savefig(output_dir / "aggregate_cost_boxplot.png", bbox_inches="tight", dpi=100)
+    plt.close(fig)
+
+    # Pooled histogram
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(all_costs, bins=30, color="#56B4E9", alpha=0.75, edgecolor="white")
+    ax.set_xlabel("Total cost (technician-seconds)", fontsize=9)
+    ax.set_ylabel("Count", fontsize=9)
+    ax.set_title(
+        f"{title_prefix}Pooled cost histogram ({len(all_costs)} traj., {len(scenarios)} scenarios)",
+        fontsize=9,
+    )
+    ax.grid(axis="y", linewidth=0.4, alpha=0.5)
+    plt.tight_layout()
+    fig.savefig(output_dir / "aggregate_cost_histogram.png", bbox_inches="tight", dpi=100)
     plt.close(fig)

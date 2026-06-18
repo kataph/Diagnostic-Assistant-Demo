@@ -34,7 +34,8 @@ from Evaluation.clustering import (
     cluster_execution, cluster_intent, embed_intent, _hdbscan_on_dist,
     _normalized_levenshtein, execution_sequence, intent_sequence,
     label_clusters_llm, save_dendrogram, save_intent_scatter,
-    save_cluster_cost_violin, save_cluster_cost_histogram,
+    save_cluster_cost_violin, save_cluster_cost_histogram, save_cluster_cost_boxplot,
+    save_aggregate_cost_plots,
 )
 from Evaluation.metrics import (
     ari_inter as compute_ari_inter,
@@ -124,6 +125,7 @@ class ScenarioState:
     stopped: bool = False
     error: bool = False
     n_truncations: int = 0
+    intent_cluster_labels: dict = field(default_factory=dict)  # {cluster_id: label_str}
     batch_history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -135,6 +137,7 @@ class ScenarioState:
             "trajectory_paths": self.trajectory_paths,
             "cluster_assignments_intent": self.cluster_assignments_intent,
             "cluster_assignments_execution": self.cluster_assignments_execution,
+            "intent_cluster_labels": self.intent_cluster_labels,
             "streak_intent": self.streak_intent,
             "streak_execution": self.streak_execution,
             "converged": self.converged,
@@ -156,6 +159,7 @@ class ScenarioState:
         s.stopped = d.get("stopped", False)
         s.error = d.get("error", False)
         s.n_truncations = d.get("n_truncations", 0)
+        s.intent_cluster_labels = d.get("intent_cluster_labels", {})
         s.batch_history = d.get("batch_history", [])
         return s
 
@@ -297,6 +301,9 @@ class AdaptiveEvaluationProtocol:
         # Run-level qualitative prose summary across all scenarios
         if self.config.run_qualitative and not self.config.mock_llm_labels:
             self._run_qualitative_summary()
+
+        # Cross-scenario aggregate cost plots
+        self._save_aggregate_plots(scenario_numbers)
 
     # ------------------------------------------------------------------ #
     # Per-scenario loop
@@ -663,6 +670,47 @@ class AdaptiveEvaluationProtocol:
         out_path.write_text(summary + "\n", encoding="utf-8")
         self._log(f"[Qualitative summary] Written to {out_path}")
 
+    def _save_aggregate_plots(self, scenario_numbers: list[int]) -> None:
+        """Collect per-scenario cost+cluster data and emit run-level aggregate plots."""
+        run_dir = (
+            self.config.checkpoint_dir
+            / self.config.assistant_type
+            / self.config.protocol_run_id
+        )
+        per_scenario_data = []
+        for num in scenario_numbers:
+            ckpt_path = run_dir / str(num) / "checkpoint.json"
+            if not ckpt_path.exists():
+                continue
+            try:
+                import json
+                ckpt = json.loads(ckpt_path.read_text(encoding="utf-8"))
+                trajs = self._load_trajectories(ckpt_path.parent)
+                trajs = [t for t in trajs if t.get("end") != "llm_truncation"]
+                costs = [t.get("total_cost", float("nan")) for t in trajs]
+                labels = ckpt.get("cluster_assignments_intent", [])
+                label_names_raw = ckpt.get("intent_cluster_labels", {})
+                label_names = {int(k): v for k, v in label_names_raw.items()} if label_names_raw else None
+                if costs and labels and len(costs) == len(labels):
+                    per_scenario_data.append({
+                        "costs": costs,
+                        "labels": labels,
+                        "label_names": label_names,
+                        "scenario": num,
+                    })
+            except Exception as exc:
+                self._log(f"[Aggregate plots] Skipping scenario {num}: {exc}")
+
+        if not per_scenario_data:
+            return
+        try:
+            agg_dir = run_dir / "aggregate_plots"
+            title_prefix = f"{self.config.assistant_type} | "
+            save_aggregate_cost_plots(per_scenario_data, agg_dir, title_prefix=title_prefix)
+            self._log(f"[Aggregate plots] Saved to {agg_dir}")
+        except Exception as exc:
+            self._log(f"[Aggregate plots] Failed: {exc}")
+
     def _post_convergence(
         self, state: ScenarioState, scenario_number: int, ckpt_path: Path
     ) -> None:
@@ -690,6 +738,9 @@ class AdaptiveEvaluationProtocol:
                 mock=self.config.mock_llm_labels,
                 labeling_model=self.config.labeling_model,
             )
+        if cluster_labels:
+            state.intent_cluster_labels = {str(k): v for k, v in cluster_labels.items()}
+            save_checkpoint(ckpt_path, state.to_dict())
 
         last = state.batch_history[-1]
         numerical = last.get("numerical_metrics", {})
@@ -797,30 +848,34 @@ class AdaptiveEvaluationProtocol:
         except Exception as exc:
             self._log(f"[Scenario {scenario_number}] Warning: intent scatter save failed: {exc}")
 
-        # Save cost-distribution-per-cluster plots (violin + histogram)
+        # Save cost-distribution-per-cluster plots (violin + histogram + boxplot)
+        # for both intent and execution clusters.
         try:
             traj_costs = [t.get("total_cost", float("nan")) for t in trajectories]
-            intent_labels = state.cluster_assignments_intent
-            if traj_costs and intent_labels:
+            for level, labels_for_level, label_names, suffix in [
+                ("intent",    state.cluster_assignments_intent,    cluster_labels, "intent"),
+                ("execution", state.cluster_assignments_execution, None,           "exec"),
+            ]:
+                if not traj_costs or not labels_for_level:
+                    continue
+                base = f"Scenario {scenario_number} | Cost per {level} cluster ({len(trajectories)} traj.)"
                 save_cluster_cost_violin(
-                    costs=traj_costs,
-                    labels=intent_labels,
-                    cluster_label_names=cluster_labels,
-                    output_path=ckpt_path.parent / "cluster_cost_violin.png",
-                    title=(
-                        f"Scenario {scenario_number} | Cost per intent cluster "
-                        f"({len(trajectories)} trajectories)"
-                    ),
+                    costs=traj_costs, labels=labels_for_level,
+                    cluster_label_names=label_names,
+                    output_path=ckpt_path.parent / f"cluster_cost_violin_{suffix}.png",
+                    title=base,
                 )
                 save_cluster_cost_histogram(
-                    costs=traj_costs,
-                    labels=intent_labels,
-                    cluster_label_names=cluster_labels,
-                    output_path=ckpt_path.parent / "cluster_cost_histogram.png",
-                    title=(
-                        f"Scenario {scenario_number} | Cost histogram per intent cluster "
-                        f"({len(trajectories)} trajectories)"
-                    ),
+                    costs=traj_costs, labels=labels_for_level,
+                    cluster_label_names=label_names,
+                    output_path=ckpt_path.parent / f"cluster_cost_histogram_{suffix}.png",
+                    title=base + " — bar at mean",
+                )
+                save_cluster_cost_boxplot(
+                    costs=traj_costs, labels=labels_for_level,
+                    cluster_label_names=label_names,
+                    output_path=ckpt_path.parent / f"cluster_cost_boxplot_{suffix}.png",
+                    title=base + " — boxplot",
                 )
         except Exception as exc:
             self._log(f"[Scenario {scenario_number}] Warning: cluster cost plots failed: {exc}")
